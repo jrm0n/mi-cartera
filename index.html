@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<meta name="theme-color" content="#0d1117" />
+<title>Mi Cartera</title>
+<link rel="manifest" href="manifest.webmanifest" />
+<meta name="application-name" content="Mi Cartera" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Mi Cartera" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<style>
+:root{
+  --bg:#f4f6f8;--panel:#fff;--panel2:#f8fafc;--text:#151922;--muted:#6b7280;--line:#e5e7eb;
+  --good:#0a8f4f;--bad:#c43232;--warn:#a45b00;--accent:#172554;--shadow:0 8px 24px rgba(15,23,42,.08);
+  --radius:18px;--navh:70px;
+}
+[data-theme="dark"]{--bg:#0b0f14;--panel:#121821;--panel2:#0f141b;--text:#f4f7fb;--muted:#9aa6b2;--line:#24303d;--accent:#dbeafe;--shadow:none}
+[data-theme="dark"] .entity-card,[data-theme="dark"] .op-box,[data-theme="dark"] .bank-group-title{background:#d7e0e9;border-color:#aebdcb;color:#111827} [data-theme="dark"] .entity-card .entity-value,[data-theme="dark"] .entity-card .entity-sub,[data-theme="dark"] .op-box,[data-theme="dark"] .bank-group-title,[data-theme="dark"] .bank-group-title span{color:#111827} [data-theme="dark"] .entity-card .entity-sub,[data-theme="dark"] .bank-group-title span{color:#475569} [data-theme="dark"] .entity-detail{border-top-color:#aebdcb} [data-theme="dark"] .fund-row{border-bottom-color:#aebdcb}
+
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+button,input,select{font:inherit}.app{min-height:100vh;padding-bottom:calc(var(--navh) + env(safe-area-inset-bottom) + 12px)}
+.topbar{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%, transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.topbar-inner{max-width:1180px;margin:auto;padding:14px 16px;display:flex;align-items:center;gap:12px}.brand{font-weight:800;font-size:19px;letter-spacing:-.02em}.spacer{flex:1}
+.iconbtn,.btn{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:12px;min-height:42px;padding:0 13px;cursor:pointer}.iconbtn{width:42px;padding:0}.btn.primary{background:#111827;color:#fff;border-color:#111827}.btn.ghost{background:transparent}.btn.small{min-height:36px;padding:0 10px;font-size:13px}
+main{max-width:1180px;margin:auto;padding:18px 14px}.page{display:none}.page.active{display:block}.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:800}.hero{display:grid;gap:12px}.hero-card{background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:18px;box-shadow:var(--shadow)}
+.hero-value{font-size:34px;font-weight:850;letter-spacing:-.04em;margin:4px 0}.hero-meta{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.metric-positive{color:var(--good);font-weight:750}.metric-negative{color:var(--bad);font-weight:750}.muted{color:var(--muted)}
+.section-head{display:flex;align-items:center;gap:10px;margin:24px 2px 10px}.section-head h2{margin:0;font-size:18px}.section-head .spacer{flex:1}.summary-grid{display:grid;gap:12px}.entity-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
+.entity-main{padding:15px;display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;cursor:pointer}.entity-name{font-weight:900;font-size:20px;line-height:1;display:flex;align-items:center;min-height:34px}.brand-logo-img{display:block;height:32px;width:auto;max-width:min(100%,260px);object-fit:contain;object-position:left center;background:transparent}.brand-logo-img.logo-bankinter{height:34px}.brand-logo-img.logo-degiro{height:36px}.brand-logo-img.logo-kutxabank{height:36px}.brand-logo-img.logo-trade-republic{height:28px}.brand-logo-img.logo-myinvestor{height:30px}.entity-sub{font-size:12px;color:var(--muted);margin-top:5px}.entity-value{text-align:right;font-weight:850}.entity-ytd{font-size:13px;margin-top:3px}.entity-detail{border-top:1px solid var(--line);display:none}.entity-card.open .entity-detail{display:block}.fund-row{display:grid;grid-template-columns:1fr auto;gap:12px;padding:13px 15px;border-bottom:1px solid var(--line);cursor:pointer}.fund-row:last-child{border-bottom:0}.fund-name{font-weight:700;font-size:14px}.fund-meta{font-size:12px;color:var(--muted);margin-top:3px}.fund-value{text-align:right;font-weight:800;font-size:14px}.trend{font-size:12px;margin-top:3px}.arrow.up{color:var(--good)}.arrow.down{color:var(--bad)}.entity-sub{font-size:12px;color:var(--muted);margin-top:5px}.entity-value{text-align:right;font-weight:850}.entity-ytd{font-size:13px;margin-top:3px}.entity-detail{border-top:1px solid var(--line);display:none}.entity-card.open .entity-detail{display:block}.fund-row{display:grid;grid-template-columns:1fr auto;gap:12px;padding:13px 15px;border-bottom:1px solid var(--line);cursor:pointer}.fund-row:last-child{border-bottom:0}.fund-name{font-weight:700;font-size:14px}.fund-meta{font-size:12px;color:var(--muted);margin-top:3px}.fund-value{text-align:right;font-weight:800;font-size:14px}.trend{font-size:12px;margin-top:3px}.arrow.up{color:var(--good)}.arrow.down{color:var(--bad)}
+.toolbar{display:grid;grid-template-columns:1fr auto;gap:10px;margin-bottom:12px}.search{width:100%;background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:13px;min-height:44px;padding:0 13px}.segmented{display:flex;background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:3px;overflow:auto}.segmented button{border:0;background:transparent;color:var(--muted);padding:8px 12px;border-radius:10px;white-space:nowrap;cursor:pointer}.segmented button.active{background:var(--text);color:var(--panel)}
+.group-block{margin:14px 0}.group-title{display:flex;align-items:center;justify-content:space-between;margin:0 2px 8px;gap:10px}.group-title h3{margin:0;font-size:16px;display:flex;align-items:center;min-height:24px}.group-title h3 .brand-logo-img{height:22px;max-width:180px;background:transparent}.group-title h3 .brand-logo-img.logo-bankinter{height:24px}.group-title h3 .brand-logo-img.logo-degiro{height:24px}.group-title h3 .brand-logo-img.logo-trade-republic{height:20px}.group-title h3 .brand-logo-img.logo-myinvestor{height:22px}.group-title h3 .brand-logo-img.logo-kutxabank{height:24px}.group-title h3 .brand-logo-img.logo-trade-republic{height:20px}.group-title h3 .brand-logo-img.logo-myinvestor{height:22px}.group-title span{font-size:13px;color:var(--muted)}.position-list{display:grid;gap:10px}.position-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:var(--shadow);cursor:pointer}.position-top{display:flex;gap:10px}.position-main{min-width:0;flex:1}.position-name{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.position-isin{font-size:12px;color:var(--muted);margin-top:3px}.position-val{text-align:right;font-weight:850}.chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}.chip{background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:6px 9px;font-size:12px}.position-result{font-size:13px;margin-top:9px}
+.ops-list{display:grid;gap:10px}.op-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px}.op-card.pending-editable{cursor:pointer}.op-card.pending-editable:hover{border-color:color-mix(in srgb,var(--warn) 55%,var(--line))}.op-head{display:flex;justify-content:space-between;gap:10px}.op-type{font-weight:850}.pending{color:var(--warn);font-weight:750;font-size:12px}.pending-hint{font-size:11px;color:var(--muted);margin-top:3px}.op-flow{margin-top:10px;display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center}.op-box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px;font-size:13px;min-width:0}.op-box strong{display:block;margin-bottom:6px}.op-box .brand-logo-img{height:28px;max-width:190px}.bank-group-title{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:9px 12px;margin-top:10px}
+.analysis-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:12px}.mini-bars{display:grid;gap:9px;margin-top:10px}.barrow{display:grid;grid-template-columns:110px 1fr 50px;gap:8px;align-items:center;font-size:12px}.bartrack{height:9px;background:var(--panel2);border-radius:999px;overflow:hidden}.barfill{height:100%;background:currentColor;border-radius:999px}.barval{text-align:right}
+.bottom-nav{position:fixed;left:0;right:0;bottom:0;height:calc(var(--navh) + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);background:color-mix(in srgb,var(--panel) 96%,transparent);backdrop-filter:blur(16px);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);z-index:30}.navbtn{border:0;background:transparent;color:var(--muted);display:grid;place-items:center;align-content:center;gap:3px;font-size:11px;cursor:pointer}.navbtn .ico{font-size:20px;line-height:1}.navbtn.active{color:var(--text);font-weight:800}
+.fab{position:fixed;right:18px;bottom:calc(var(--navh) + env(safe-area-inset-bottom) + 18px);z-index:25;border:0;border-radius:999px;background:#111827;color:#fff;padding:13px 17px;font-weight:800;box-shadow:0 10px 30px rgba(0,0,0,.25);cursor:pointer}
+.drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:50;display:none}.drawer-backdrop.open{display:block}.drawer{position:absolute;left:0;right:0;bottom:0;max-height:92vh;overflow:auto;background:var(--panel);border-radius:24px 24px 0 0;padding:16px;padding-bottom:calc(24px + env(safe-area-inset-bottom));box-shadow:0 -18px 50px rgba(0,0,0,.2)}.drawer-handle{width:44px;height:5px;border-radius:10px;background:var(--line);margin:0 auto 12px}.drawer-head{display:flex;align-items:flex-start;gap:12px}.drawer-title{font-size:20px;font-weight:850;line-height:1.2}.close{margin-left:auto;border:0;background:var(--panel2);color:var(--text);width:36px;height:36px;border-radius:999px;cursor:pointer}.detail-kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:14px 0}.kpi{border:1px solid var(--line);border-radius:14px;padding:11px}.kpi span{display:block;color:var(--muted);font-size:11px}.kpi strong{display:block;margin-top:4px;font-size:16px}.chart-wrap{border:1px solid var(--line);border-radius:16px;padding:10px;background:var(--panel2)}canvas{width:100%;height:220px;display:block}.rangebar{display:flex;gap:6px;overflow:auto;padding:10px 0 2px}.rangebar button{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:999px;padding:7px 10px;font-size:12px;cursor:pointer}.rangebar button.active{background:var(--text);color:var(--panel)}
+.form-grid{display:grid;gap:12px}.field label{display:block;font-size:12px;color:var(--muted);margin:0 0 5px 2px}.field input,.field select{width:100%;min-height:44px;border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:12px;padding:0 12px}.form-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:14px}.notice{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:11px;font-size:12px;color:var(--muted);line-height:1.45}.desktop-side{display:none}
+@media(min-width:760px){
+  .app{padding-bottom:20px;padding-left:220px}.bottom-nav{display:none}.desktop-side{display:flex;position:fixed;left:0;top:0;bottom:0;width:220px;background:var(--panel);border-right:1px solid var(--line);padding:22px 14px;flex-direction:column;z-index:40}.sidebrand{font-size:20px;font-weight:900;margin:0 10px 22px}.sidebtn{border:0;background:transparent;color:var(--muted);text-align:left;padding:12px;border-radius:11px;cursor:pointer;margin:2px 0}.sidebtn.active{background:var(--panel2);color:var(--text);font-weight:800}.topbar-inner{padding-left:22px;padding-right:22px}.summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.position-list{grid-template-columns:repeat(2,minmax(0,1fr))}.drawer{left:50%;right:auto;bottom:50%;transform:translate(-50%,50%);width:min(760px,90vw);border-radius:24px;max-height:88vh}.fab{right:28px;bottom:28px}.detail-kpis{grid-template-columns:repeat(4,1fr)}
+}
+@media(min-width:1050px){.summary-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.position-list{grid-template-columns:repeat(3,minmax(0,1fr))}.hero{grid-template-columns:1.4fr .6fr}}
+
+.auth-hidden{visibility:hidden}.auth-gate{position:fixed;inset:0;z-index:999;background:var(--bg);display:grid;place-items:center;padding:20px}.auth-gate.hidden{display:none}.auth-card{width:min(430px,100%);background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:22px;box-shadow:var(--shadow)}.auth-title{font-size:25px;font-weight:900;letter-spacing:-.035em;margin:3px 0 4px}.auth-sub{font-size:13px;color:var(--muted);line-height:1.45;margin-bottom:18px}.auth-form{display:grid;gap:12px}.auth-form input{width:100%;min-height:48px;border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:13px;padding:0 13px}.auth-form .btn{min-height:48px}.sync-badge{font-size:11px;color:var(--muted);max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sync-badge[data-kind="ok"]{color:var(--good)}.sync-badge[data-kind="warn"]{color:var(--warn)}
+</style>
+</head>
+<body>
+<div class="auth-gate" id="authGate"><div class="auth-card"><div class="eyebrow">Mi Cartera · Cloud</div><div class="auth-title">Iniciar sesión</div><div class="auth-sub">La misma cuenta carga y guarda la cartera en Supabase desde el móvil y el PC.</div><form class="auth-form" id="loginForm"><input id="loginEmail" type="email" autocomplete="username" placeholder="Correo electrónico" required><input id="loginPassword" type="password" autocomplete="current-password" placeholder="Contraseña" required><button class="btn primary" id="loginBtn" type="submit">Entrar</button><div class="muted" id="authMessage" style="font-size:12px;min-height:18px"></div></form></div></div>
+<div class="app" id="app">
+  <aside class="desktop-side">
+    <div class="sidebrand">Mi Cartera</div>
+    <button class="sidebtn active" data-page="home">Resumen</button>
+    <button class="sidebtn" data-page="positions">Posiciones</button>
+    <button class="sidebtn" data-page="operations">Operaciones</button>
+    <button class="sidebtn" data-page="analysis">Análisis</button>
+    <div class="spacer"></div>
+    <button class="sidebtn" id="installDesktop" style="display:none">Instalar app</button>
+    <button class="sidebtn" id="themeDesktop">Modo oscuro</button>
+    <div class="muted" style="font-size:11px;padding:8px 4px">v0.2.0</div>
+  </aside>
+
+  <header class="topbar"><div class="topbar-inner">
+    <div><div class="eyebrow">Cartera activa</div><div class="brand">JoseRa</div></div>
+    <div class="spacer"></div>
+    <span class="sync-badge" id="syncBadge">Conectando…</span>
+    <button class="iconbtn" id="logoutBtn" aria-label="Cerrar sesión" title="Cerrar sesión">⇥</button>
+    <button class="iconbtn" id="installBtn" aria-label="Instalar app" title="Instalar app" style="display:none">⇩</button>
+    <button class="iconbtn" id="themeBtn" aria-label="Cambiar tema">◐</button>
+  </div></header>
+
+  <main>
+    <section class="page active" id="page-home">
+      <div class="hero">
+        <div class="hero-card">
+          <div class="eyebrow">Valor actual</div>
+          <div class="hero-value" id="totalValue">—</div>
+          <div class="hero-meta">
+            <span id="totalYtd" class="metric-positive">—</span>
+            <span class="muted" id="lastUpdate">VL hasta 18/09/2026</span>
+          </div>
+        </div>
+        <div class="hero-card">
+          <div class="eyebrow">Desde última actualización</div>
+          <div style="font-size:24px;font-weight:850;margin:5px 0" id="sinceUpdate">—</div>
+          <button class="btn primary" id="refreshBtn">↻ Actualizar cartera</button>
+        </div>
+      </div>
+
+      <div class="section-head"><h2>Posiciones actuales</h2><div class="spacer"></div><span class="muted" style="font-size:12px">Agrupadas por entidad</span></div>
+      <div class="summary-grid" id="entitySummary"></div>
+    </section>
+
+    <section class="page" id="page-positions">
+      <div class="section-head"><h2>Posiciones</h2></div>
+      <div class="toolbar">
+        <input class="search" id="positionSearch" placeholder="Buscar fondo o ISIN" />
+        <div class="segmented" id="groupMode"><button class="active" data-group="entity">Entidad</button><button data-group="theme">Temática</button></div>
+      </div>
+      <div id="positionsBody"></div>
+    </section>
+
+    <section class="page" id="page-operations">
+      <div class="section-head"><h2>Operaciones</h2><div class="spacer"></div><button class="btn primary small" id="newOpTop">+ Nueva</button></div>
+      <div class="segmented" id="opFilter" style="margin-bottom:12px"><button class="active" data-filter="all">Todas</button><button data-filter="transfer">Traspasos</button><button data-filter="pending">Pendientes</button></div>
+      <div class="ops-list" id="opsList"></div>
+    </section>
+
+    <section class="page" id="page-analysis">
+      <div class="section-head"><h2>Análisis</h2></div>
+      <div class="analysis-card"><div class="eyebrow">Distribución temática</div><div class="mini-bars" id="themeBars"></div></div>
+      <div class="analysis-card"><div class="eyebrow">Datos y versión</div><p style="line-height:1.5;margin:8px 0 10px"><strong>Mi Cartera v0.2.0 Cloud</strong> · esquema de datos 1.<br>Supabase es la fuente de verdad. La app conserva además una copia local de lectura para poder mostrar la última cartera si temporalmente no hay conexión.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small" onclick="exportBackup()">Exportar copia</button><button class="btn small" onclick="syncFromCloud(true)">Sincronizar ahora</button></div><div class="notice" id="cloudStatus" style="margin-top:10px">Conectando con Supabase…</div><div class="muted" id="signedUser" style="font-size:12px;margin-top:8px"></div></div>
+    </section>
+  </main>
+
+  <button class="fab" id="newOpFab">+ Operación</button>
+  <nav class="bottom-nav">
+    <button class="navbtn active" data-page="home"><span class="ico">⌂</span><span>Inicio</span></button>
+    <button class="navbtn" data-page="positions"><span class="ico">◫</span><span>Posiciones</span></button>
+    <button class="navbtn" data-page="operations"><span class="ico">↔</span><span>Operaciones</span></button>
+    <button class="navbtn" data-page="analysis"><span class="ico">⌁</span><span>Análisis</span></button>
+  </nav>
+</div>
+
+<div class="drawer-backdrop" id="detailBackdrop"><div class="drawer" id="detailDrawer"><div class="drawer-handle"></div><div id="detailContent"></div></div></div>
+<div class="drawer-backdrop" id="opBackdrop"><div class="drawer"><div class="drawer-handle"></div><div id="opContent"></div></div></div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
