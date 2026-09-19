@@ -66,6 +66,7 @@ function decodeHtml(text: string) {
     .replace(/&Oacute;/g, "Ó")
     .replace(/&Uacute;/g, "Ú")
     .replace(/&Ntilde;/g, "Ñ")
+    .replace(/&euro;|&#8364;/gi, "€")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -80,31 +81,73 @@ function between(text: string, start: RegExp, end: RegExp) {
   return value || null;
 }
 
+function cleanField(value: string | null, max = 240) {
+  if (!value) return null;
+  const v = value.replace(/\s+/g, " ").trim();
+  if (!v || /^n\/?a$/i.test(v) || /^-+$/.test(v)) return null;
+  return v.slice(0, max);
+}
+
+function finectSlug(name: string) {
+  return String(name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 async function fetchVdos(isin: string) {
-  const sourceUrl = `https://www.quefondos.com/es/fondos/ficha/index.html?isin=${encodeURIComponent(isin)}`;
+  // The mobile fiche is simpler and exposes Gestora / Categoría VDOS as plain text.
+  const sourceUrl = `https://www.quefondos.com/m/es/fondos/ficha/?isin=${encodeURIComponent(isin)}`;
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "MiCartera/0.3 (+personal portfolio data resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.3.1; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
     });
-    if (!response.ok) return { sourceUrl, ok: false, status: response.status };
-    const html = await response.text();
-    const text = decodeHtml(html);
-    const category = between(text, /Categoría VDOS\s*:\s*/i, /Rating VDOS\s*:/i);
-    const manager = between(text, /Gestora\s*:\s*/i, /Categoría VDOS\s*:/i);
-    const benchmark = between(text, /Referencia\s*:\s*/i, /Última valoración|Valor liquidativo|Rentabilidades/i);
+    if (!response.ok) return { sourceUrl, ok: false, status: response.status, category: null, manager: null, benchmark: null };
+    const text = decodeHtml(await response.text());
+    const category = cleanField(between(text, /Categoría VDOS\s*:?\s*/i, /Rating VDOS\s*:?/i));
+    const manager = cleanField(between(text, /Gestora\s*:?\s*/i, /Categoría VDOS\s*:?/i));
+    const benchmark = cleanField(between(text, /Referencia\s*:?\s*/i, /Última valoración|Valor liquidativo|Rentabilidades|Política de inversión/i));
+    return { sourceUrl, ok: !!(category || manager || benchmark), status: response.status, category, manager, benchmark };
+  } catch (error) {
+    return { sourceUrl, ok: false, error: String(error), category: null, manager: null, benchmark: null };
+  }
+}
+
+async function fetchFinect(isin: string, name: string) {
+  const slug = finectSlug(name);
+  const sourceUrl = `https://www.finect.com/fondos-inversion/${encodeURIComponent(isin)}-${slug}`;
+  try {
+    const response = await fetch(sourceUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.3.1; personal portfolio resolver)",
+        "Accept": "text/html,application/xhtml+xml",
+      },
+      redirect: "follow",
+    });
+    if (!response.ok) return { sourceUrl, ok: false, status: response.status, category: null, manager: null, benchmark: null };
+    const text = decodeHtml(await response.text());
+    // Restrict parsing to the information block so menu/footer repetitions do not pollute fields.
+    const marker = text.search(/\bInformación\b/i);
+    const info = marker >= 0 ? text.slice(marker) : text;
+    const manager = cleanField(between(info, /\bGestora\s*/i, /\bCategoría\s*/i));
+    const category = cleanField(between(info, /\bCategoría\s*/i, /\bBenchmark\s*/i));
+    const benchmark = cleanField(between(info, /\bBenchmark\s*/i, /\bFondo indexado\b/i));
+    const validPage = info.includes(isin) || text.includes(isin);
     return {
-      sourceUrl,
-      ok: true,
-      category: category?.slice(0, 240) ?? null,
-      manager: manager?.slice(0, 240) ?? null,
-      benchmark: benchmark?.slice(0, 240) ?? null,
+      sourceUrl: response.url || sourceUrl,
+      ok: validPage && !!(category || manager || benchmark),
+      status: response.status,
+      category: validPage ? category : null,
+      manager: validPage ? manager : null,
+      benchmark: validPage ? benchmark : null,
     };
   } catch (error) {
-    return { sourceUrl, ok: false, error: String(error) };
+    return { sourceUrl, ok: false, error: String(error), category: null, manager: null, benchmark: null };
   }
 }
 
@@ -122,8 +165,6 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, error: "SERVER_CONFIGURATION_INCOMPLETE" }, 500);
     }
 
-    // The function performs its own user validation. When deploying it from the
-    // Dashboard, disable the legacy JWT gateway check for this function.
     const authHeader = req.headers.get("Authorization") ?? "";
     if (!authHeader.toLowerCase().startsWith("bearer ")) {
       return json({ ok: false, error: "AUTH_REQUIRED" }, 401);
@@ -161,7 +202,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const existingRows = await db(
-      `funds?isin=eq.${encodeURIComponent(isin)}&select=isin,name,manager,currency,theme,category,category_source,benchmark,data_provider,provider_symbol,metadata_source,metadata_fetched_at&limit=1`
+      `funds?isin=eq.${encodeURIComponent(isin)}&select=isin,name,manager,currency,theme,category,category_source,benchmark,data_provider,provider_symbol,metadata_source,metadata_fetched_at,category_fetched_at&limit=1`
     );
     const existing = Array.isArray(existingRows) ? existingRows[0] ?? null : null;
 
@@ -193,10 +234,34 @@ Deno.serve(async (req: Request) => {
       currency = String(searchResult.Currency || currency || "EUR").trim().toUpperCase();
     }
 
-    // VDOS/Quefondos is used only for fields explicitly published on the fund
-    // page (category, manager and reference index). No category is inferred.
-    const vdos = await fetchVdos(isin);
     const nowIso = new Date().toISOString();
+    let category = existing?.category ?? null;
+    let categorySource = existing?.category_source ?? null;
+    let manager = existing?.manager ?? null;
+    let benchmark = existing?.benchmark ?? null;
+    let vdos: any = { ok: false, sourceUrl: null, category: null, manager: null, benchmark: null };
+    let finect: any = { ok: false, sourceUrl: null, category: null, manager: null, benchmark: null };
+
+    // Refresh public metadata only when something useful is missing or explicitly requested.
+    if (forceMetadata || !category || !manager || !benchmark) {
+      vdos = await fetchVdos(isin);
+      if (vdos.category) {
+        category = vdos.category;
+        categorySource = "VDOS/Quefondos";
+      }
+      if (!manager && vdos.manager) manager = vdos.manager;
+      if (!benchmark && vdos.benchmark) benchmark = vdos.benchmark;
+
+      if (!category || !manager || !benchmark) {
+        finect = await fetchFinect(isin, name || isin);
+        if (!category && finect.category) {
+          category = finect.category;
+          categorySource = "Finect (datos Morningstar)";
+        }
+        if (!manager && finect.manager) manager = finect.manager;
+        if (!benchmark && finect.benchmark) benchmark = finect.benchmark;
+      }
+    }
 
     const fundPayload: Record<string, unknown> = {
       isin,
@@ -209,13 +274,13 @@ Deno.serve(async (req: Request) => {
       active: true,
     };
     if (!existing) fundPayload.theme = "Sin clasificar";
-    if (vdos.ok && vdos.category) {
-      fundPayload.category = vdos.category;
-      fundPayload.category_source = "VDOS/Quefondos";
+    if (category) {
+      fundPayload.category = category;
+      fundPayload.category_source = categorySource;
       fundPayload.category_fetched_at = nowIso;
     }
-    if (vdos.ok && vdos.manager) fundPayload.manager = vdos.manager;
-    if (vdos.ok && vdos.benchmark) fundPayload.benchmark = vdos.benchmark;
+    if (manager) fundPayload.manager = manager;
+    if (benchmark) fundPayload.benchmark = benchmark;
 
     const upserted = await db(`funds?on_conflict=isin`, {
       method: "POST",
@@ -224,8 +289,7 @@ Deno.serve(async (req: Request) => {
     });
     const fund = Array.isArray(upserted) ? upserted[0] : upserted;
 
-    // Search API already gives the latest published close; persist it without
-    // consuming a second EODHD call.
+    // Search API gives the latest published close for a newly resolved ISIN.
     if (searchResult?.previousClose != null && searchResult?.previousCloseDate) {
       await db(`fund_navs?on_conflict=isin,nav_date`, {
         method: "POST",
@@ -291,7 +355,6 @@ Deno.serve(async (req: Request) => {
           .filter((row: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(row.nav_date)) && Number.isFinite(row.nav) && row.nav > 0);
 
         if (navRows.length) {
-          // Keep request bodies modest if a provider returns more rows than expected.
           for (let i = 0; i < navRows.length; i += 250) {
             const chunk = navRows.slice(i, i + 250);
             await db(`fund_navs?on_conflict=isin,nav_date`, {
@@ -317,11 +380,11 @@ Deno.serve(async (req: Request) => {
       fund: {
         isin,
         name: fund?.name ?? name ?? isin,
-        manager: fund?.manager ?? vdos.manager ?? null,
+        manager: fund?.manager ?? manager ?? null,
         currency: fund?.currency ?? currency ?? null,
-        category: fund?.category ?? vdos.category ?? null,
-        category_source: fund?.category_source ?? (vdos.category ? "VDOS/Quefondos" : null),
-        benchmark: fund?.benchmark ?? vdos.benchmark ?? null,
+        category: fund?.category ?? category ?? null,
+        category_source: fund?.category_source ?? categorySource ?? null,
+        benchmark: fund?.benchmark ?? benchmark ?? null,
         provider: "EODHD",
         provider_symbol: providerSymbol,
         metadata_source: "EODHD Search API",
@@ -331,6 +394,7 @@ Deno.serve(async (req: Request) => {
         nav: Number(latest.nav),
         currency: latest.currency,
         source: latest.source,
+        fetched_at: latest.fetched_at,
       } : null,
       history: {
         requested: includeHistory,
@@ -339,8 +403,11 @@ Deno.serve(async (req: Request) => {
       },
       sources: {
         identity_nav: "EODHD",
-        category: vdos.category ? "VDOS/Quefondos" : null,
+        category: fund?.category_source ?? categorySource ?? null,
+        manager: vdos.manager ? "VDOS/Quefondos" : (finect.manager ? "Finect" : null),
+        benchmark: vdos.benchmark ? "VDOS/Quefondos" : (finect.benchmark ? "Finect (datos Morningstar)" : null),
         vdos_url: vdos.sourceUrl,
+        finect_url: finect.sourceUrl,
       },
     });
   } catch (error) {

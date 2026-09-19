@@ -1,3 +1,12 @@
+v0.3.1 Metadata/UI - 2026-09-19
+- El formulario de operación muestra VL actual, fecha del VL y fuente.
+- Muestra también gestora y benchmark como campos de solo lectura.
+- La categoría se obtiene de fuentes publicadas: VDOS/Quefondos y, si falta, Finect (datos Morningstar).
+- No se infieren sectores o temáticas a partir del nombre del fondo.
+- El resolver conserva en Supabase la procedencia de la categoría y el último VL.
+- Corrección del caché: si faltan categoría, benchmark o VL, vuelve a consultar el backend en lugar de dar la ficha por completa.
+- Sin cambios de esquema de base de datos.
+
 v0.3.0 Data - 2026-09-19
 - Identificación automática de fondos por ISIN mediante EODHD Search API.
 - Nombre, divisa, código del proveedor y último VL se guardan con trazabilidad de fuente.
