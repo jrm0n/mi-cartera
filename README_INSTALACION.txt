@@ -1,4 +1,4 @@
-v0.3.5 - Corrección visual del logotipo de Trade Republic
+v0.3.6 - Corrección visual del logotipo de Trade Republic
 1) Ejecutar backend/007_operation_management_v0.3.4.sql en Supabase SQL Editor.
 2) Sustituir el código de la Edge Function resolve-fund por supabase/functions/resolve-fund/index.ts y desplegar.
 3) Subir a GitHub Pages los archivos de la v0.3.4.

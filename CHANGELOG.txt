@@ -1,3 +1,8 @@
+v0.3.6 Contraste de texto en Resumen (modo oscuro) - 2026-09-19
+- El detalle desplegado por entidad usa la misma jerarquía de color que Posiciones.
+- Nombre y valor en blanco, metadatos en tono secundario y rentabilidad verde/roja según signo.
+- Sin cambios de datos ni de Supabase.
+
 v0.3.5 Corrección definitiva del logotipo de Trade Republic - 2026-09-19
 - Se vuelve a generar el logotipo desde la imagen aprobada por el usuario, conservando margen transparente real alrededor del símbolo para evitar cualquier recorte.
 - Se elimina el límite max-height específico que podía comprimir/recortar visualmente el wordmark en algunas anchuras.
