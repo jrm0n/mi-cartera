@@ -24,3 +24,10 @@ LIMITACION DEL PLAN EODHD FREE
 - La resolucion inicial de un ISIN desconocido consume una llamada Search.
 - La primera descarga de historico consume una llamada EOD adicional.
 - Una vez almacenado provider_symbol, las actualizaciones posteriores no necesitan repetir Search.
+
+v0.3.2 - Validacion de operaciones
+1) Ejecutar backend/006_operation_validation_v0.3.2.sql en Supabase SQL Editor.
+2) No es necesario redeplegar resolve-fund para esta version.
+3) Subir a GitHub Pages los archivos de la v0.3.2 y esperar al despliegue.
+4) Umbral de validacion: diferencia absoluta de VL < 0,1 % = aceptada; >= 0,1 % = pendiente.
+5) En traspasos se validan por separado fecha/VL de salida y fecha/VL de entrada.

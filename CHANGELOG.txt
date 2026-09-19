@@ -1,3 +1,14 @@
+v0.3.2 Validación de operaciones - 2026-09-19
+- En compras, aportaciones, ventas y reembolsos se pueden introducir dos de tres datos: importe, participaciones y VL; la app calcula el tercero.
+- Se distingue fecha de orden de fecha efectiva de ejecución.
+- El VL implícito de la operación se contrasta con el histórico desde la fecha de orden.
+- Tolerancia estricta: diferencia < 0,1 % = operación aceptada; diferencia >= 0,1 % = operación pendiente.
+- Las pequeñas diferencias compatibles con comisiones/redondeos se omiten automáticamente dentro de esa tolerancia.
+- Los traspasos validan por separado la salida del fondo origen y la entrada en el fondo destino, buscando ambas fechas efectivas desde la fecha de orden.
+- Un traspaso sólo se finaliza automáticamente cuando ambas patas quedan por debajo del 0,1 %.
+- Las operaciones pendientes siguen siendo editables y no afectan a las posiciones hasta quedar completadas.
+- Esquema de datos actualizado a versión 2.
+
 v0.3.1 Metadata/UI - 2026-09-19
 - El formulario de operación muestra VL actual, fecha del VL y fuente.
 - Muestra también gestora y benchmark como campos de solo lectura.
