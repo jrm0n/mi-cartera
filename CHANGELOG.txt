@@ -1,3 +1,7 @@
+v0.3.5 Corrección definitiva del logotipo de Trade Republic - 2026-09-19
+- Se vuelve a generar el logotipo desde la imagen aprobada por el usuario, conservando margen transparente real alrededor del símbolo para evitar cualquier recorte.
+- Se elimina el límite max-height específico que podía comprimir/recortar visualmente el wordmark en algunas anchuras.
+
 v0.3.4 Selector anual en Resumen y Posiciones - 2026-09-19
 - Resumen y Posiciones arrancan por defecto en el año en curso.
 - Selector sincronizado de periodo con todos los años desde la operación/posición más antigua y opción Total.
