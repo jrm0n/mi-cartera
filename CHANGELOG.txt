@@ -1,3 +1,13 @@
+v0.3.4 Selector anual en Resumen y Posiciones - 2026-09-19
+- Resumen y Posiciones arrancan por defecto en el año en curso.
+- Selector sincronizado de periodo con todos los años desde la operación/posición más antigua y opción Total.
+- Un fondo comprado en años anteriores sigue apareciendo en años posteriores mientras forme parte de la cartera actual; no se filtra sólo por año de compra.
+- Para un año concreto se muestra la rentabilidad del periodo de tenencia dentro de ese año usando el histórico disponible.
+- La opción Total conserva la lectura acumulada de la posición como hasta ahora.
+- Se cargan todos los VL históricos almacenados en Supabase para aprovechar años anteriores cuando existan.
+- Ajuste del wordmark de Trade Republic para evitar recorte del símbolo en Resumen y agrupaciones.
+- Sin cambios de esquema de base de datos.
+
 v0.3.3 Corrección de operaciones existentes - 2026-09-19
 - Permite eliminar operaciones individuales desde el editor, con confirmación y recálculo posterior de la cartera.
 - Las operaciones antiguas pueden actualizar automáticamente su ficha de metadatos.

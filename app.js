@@ -1,4 +1,4 @@
-const APP_VERSION='0.3.3';
+const APP_VERSION='0.3.4';
 const VALIDATION_TOLERANCE_PCT=0.1;
 const DATA_SCHEMA_VERSION=3;
 const CACHE_KEY='mi_cartera_cloud_cache_v1';
@@ -29,7 +29,7 @@ const LOGOS={
 let cloudAccounts=[];
 let navHistory={};
 let session=null;
-let state={positions:[],operations:[],funds:{},group:'entity',opFilter:'all',lastValue:null,lastNavUpdate:null,updatedAt:null};
+let state={positions:[],operations:[],funds:{},group:'entity',opFilter:'all',period:String(new Date().getFullYear()),lastValue:null,lastNavUpdate:null,updatedAt:null};
 
 const eur=n=>new Intl.NumberFormat('es-ES',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(Number.isFinite(+n)?+n:0);
 const pct=n=>n===null||n===undefined||!Number.isFinite(+n)?'—':((+n)>=0?'+':'')+(+n).toFixed(2).replace('.',',')+' %';
@@ -37,7 +37,27 @@ const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const posValue=p=>(+p.shares||0)*(+p.nav||0);
 const meta=p=>state.funds?.[p.isin]||{name:p.isin,theme:'Sin clasificar',manager:'—',currency:'EUR'};
 const total=()=>state.positions.reduce((a,p)=>a+posValue(p),0);
-function weightedYtd(items){const valid=items.filter(p=>Number.isFinite(p.ytd));const v=valid.reduce((a,p)=>a+posValue(p),0);return v?valid.reduce((a,p)=>a+posValue(p)*p.ytd,0)/v:null}
+function totalReturn(p){return p.invested>0?(posValue(p)-p.invested)/p.invested*100:null}
+function firstHoldingDate(p,year){const y=Number(year);const jan=`${y}-01-01`;return p.start&&p.start>jan?p.start:jan}
+function periodReturn(p,period=state.period){
+ if(period==='total')return totalReturn(p);
+ const year=Number(period);if(!Number.isInteger(year))return null;
+ const series=(navHistory[p.isin]||[]).filter(r=>r.nav_date&&Number.isFinite(+r.nav)&&+r.nav>0);if(!series.length)return year===new Date().getFullYear()?p.ytd:null;
+ const yearEnd=`${year}-12-31`;if(p.start&&p.start>yearEnd)return null;
+ const startDate=firstHoldingDate(p,year);
+ const endDate=year===new Date().getFullYear()?'9999-12-31':yearEnd;
+ let base=null,end=null;
+ for(const r of series){if(r.nav_date>=startDate&&!base)base=r;if(r.nav_date<=endDate)end=r;}
+ if(!base||!end||end.nav_date<base.nav_date)return null;
+ return (+end.nav/+base.nav-1)*100;
+}
+function positionsForPeriod(period=state.period){if(period==='total')return state.positions;const y=Number(period);if(!Number.isInteger(y))return state.positions;const end=`${y}-12-31`;return state.positions.filter(p=>!p.start||p.start<=end)}
+function weightedPeriodReturn(items,period=state.period){const valid=items.map(p=>[p,periodReturn(p,period)]).filter(([,r])=>Number.isFinite(r));const v=valid.reduce((a,[p])=>a+posValue(p),0);return v?valid.reduce((a,[p,r])=>a+posValue(p)*r,0)/v:null}
+function availableYears(){const current=new Date().getFullYear();let oldest=current;for(const o of state.operations||[]){const d=o.executionDate||o.date||o.settlementDate||o.outExecutionDate||o.inExecutionDate;if(d&&/^\d{4}-/.test(d))oldest=Math.min(oldest,Number(d.slice(0,4)))}for(const p of state.positions||[]){if(p.start&&/^\d{4}-/.test(p.start))oldest=Math.min(oldest,Number(p.start.slice(0,4)))}const years=[];for(let y=current;y>=oldest;y--)years.push(String(y));return years}
+function periodLabel(period=state.period){return period==='total'?'Total':String(period)}
+function periodOptions(){return [...availableYears().map(y=>`<option value="${y}" ${state.period===y?'selected':''}>${y}</option>`),`<option value="total" ${state.period==='total'?'selected':''}>Total</option>`].join('')}
+function renderPeriodSelectors(){const years=availableYears();if(state.period!=='total'&&!years.includes(String(state.period)))state.period=String(new Date().getFullYear());for(const id of ['homePeriod','positionsPeriod']){const el=document.getElementById(id);if(!el)continue;el.innerHTML=periodOptions();el.value=state.period;el.onchange=()=>{state.period=el.value;saveCache();renderPeriodSelectors();renderHome();renderPositions()}}}
+function weightedYtd(items){return weightedPeriodReturn(items,String(new Date().getFullYear()))}
 
 function entityWordmark(name){
  const cls={'BBVA':'logo-bbva','Bankinter':'logo-bankinter','Trade Republic':'logo-trade-republic','MyInvestor':'logo-myinvestor','DEGIRO':'logo-degiro','Kutxabank':'logo-kutxabank'}[name]||'';
@@ -151,13 +171,12 @@ function mapOperations(ops,transfers,accounts){
 async function syncFromCloud(showNotice=false){
  setCloudStatus('Sincronizando…');
  try{
-   const since=new Date();since.setFullYear(since.getFullYear()-3);const sinceISO=since.toISOString().slice(0,10);
    const [accounts,ops,transfers,funds,navs,profile]=await Promise.all([
      select('accounts','select=id,institution_code,account_name,active,created_at&order=created_at'),
      select('operations','select=id,account_id,isin,operation_type,operation_date,request_date,execution_date,amount,shares_delta,nav,fees,external_cashflow,status,validation_status,reference_nav,reference_nav_date,nav_difference_pct,transfer_id,notes,created_at,updated_at&order=operation_date.desc,created_at.desc'),
      select('transfers','select=id,from_account_id,from_isin,to_account_id,to_isin,request_date,settlement_date,out_execution_date,in_execution_date,amount,shares_out,shares_in,nav_out,nav_in,status,validation_status,out_reference_nav,in_reference_nav,out_difference_pct,in_difference_pct,notes,created_at,updated_at&order=request_date.desc,created_at.desc'),
      select('funds','select=isin,name,manager,currency,theme,subtheme,benchmark,active,category,category_source,category_fetched_at,data_provider,provider_symbol,instrument_type,metadata_source,metadata_fetched_at'),
-     select('fund_navs',`select=isin,nav_date,nav,currency,source,fetched_at&nav_date=gte.${sinceISO}&order=nav_date.asc&limit=10000`),
+     select('fund_navs','select=isin,nav_date,nav,currency,source,fetched_at&order=nav_date.asc&limit=20000'),
      select('profiles','select=display_name&limit=1')
    ]);
    cloudAccounts=accounts||[];const oldTotal=total();state.funds={};for(const f of funds||[])state.funds[f.isin]={...f,theme:(f.theme&&f.theme!=='Sin clasificar')?f.theme:(f.category||'Sin clasificar')};for(const n of navs||[]){const f=state.funds[n.isin];if(!f)continue;if(!f.latest_nav||n.nav_date>f.latest_nav.date)f.latest_nav={date:n.nav_date,nav:+n.nav,currency:n.currency||f.currency||'EUR',source:n.source||'Supabase',fetched_at:n.fetched_at||null}}state.positions=buildPositions(ops||[],accounts||[],funds||[],navs||[]);state.operations=mapOperations(ops||[],transfers||[],accounts||[]);state.lastValue=oldTotal||state.lastValue;state.lastNavUpdate=(navs||[]).reduce((m,n)=>!m||n.nav_date>m?n.nav_date:m,null);saveCache();renderAll();
@@ -175,15 +194,15 @@ async function ensureAccount(entity){
 }
 
 function renderHome(){
- const t=total(),y=weightedYtd(state.positions);document.getElementById('totalValue').textContent=eur(t);const yt=document.getElementById('totalYtd');yt.textContent=(y===null?'YTD —':pct(y)+' YTD');yt.className=y===null?'muted':(y>=0?'metric-positive':'metric-negative');
- const diff=state.lastValue===null?0:t-state.lastValue;document.getElementById('sinceUpdate').innerHTML=state.lastValue===null?'—':`<span class="${diff>=0?'metric-positive':'metric-negative'}">${diff>=0?'+':''}${eur(diff)}</span>`;document.getElementById('lastUpdate').textContent=state.lastNavUpdate?`VL hasta ${new Date(state.lastNavUpdate+'T00:00:00').toLocaleDateString('es-ES')}`:'Sin VL online · valoración provisional';
- const groups={};state.positions.forEach(p=>(groups[p.entity]??=[]).push(p));
- document.getElementById('entitySummary').innerHTML=Object.entries(groups).map(([e,ps])=>{const v=ps.reduce((a,p)=>a+posValue(p),0),yy=weightedYtd(ps);return `<article class="entity-card" data-entity="${esc(e)}"><div class="entity-main"><div><div class="entity-name">${entityWordmark(e)}</div><div class="entity-sub">${ps.length} ${ps.length===1?'fondo':'fondos'}</div></div><div class="entity-value">${eur(v)}<div class="entity-ytd ${yy===null?'muted':yy>=0?'metric-positive':'metric-negative'}">${yy===null?'YTD —':pct(yy)+' YTD'}</div></div></div><div class="entity-detail">${ps.map(p=>{const ec=ENTITY[p.entity]||{fundColor:'#64748b'};return `<div class="fund-row" data-pos="${esc(p.id)}" style="background:color-mix(in srgb, ${ec.fundColor} 11%, var(--panel));border-left:4px solid ${ec.fundColor}"><div><div class="fund-name">${esc(meta(p).name)}</div><div class="fund-meta">${esc(p.isin)} · ${esc(meta(p).theme)}</div></div><div class="fund-value">${eur(posValue(p))}<div class="trend"><span class="${p.nav>=p.prevNav?'arrow up':'arrow down'}">${p.nav>=p.prevNav?'↑':'↓'}</span> ${p.ytd===null?'YTD —':pct(p.ytd)+' YTD'}</div></div></div>`}).join('')}</div></article>`}).join('')||'<div class="notice">Todavía no hay posiciones. Pulsa <strong>+ Operación</strong> para introducir la primera.</div>';
+ const items=positionsForPeriod();const t=items.reduce((a,p)=>a+posValue(p),0),r=weightedPeriodReturn(items);document.getElementById('totalValue').textContent=eur(t);const yt=document.getElementById('totalYtd');const label=state.period==='total'?'Total':periodLabel();yt.textContent=(r===null?label+' —':pct(r)+' · '+label);yt.className=r===null?'muted':(r>=0?'metric-positive':'metric-negative');
+ const diff=state.lastValue===null?0:total()-state.lastValue;document.getElementById('sinceUpdate').innerHTML=state.lastValue===null?'—':`<span class="${diff>=0?'metric-positive':'metric-negative'}">${diff>=0?'+':''}${eur(diff)}</span>`;document.getElementById('lastUpdate').textContent=state.lastNavUpdate?`VL hasta ${new Date(state.lastNavUpdate+'T00:00:00').toLocaleDateString('es-ES')}`:'Sin VL online · valoración provisional';
+ const groups={};items.forEach(p=>(groups[p.entity]??=[]).push(p));
+ document.getElementById('entitySummary').innerHTML=Object.entries(groups).map(([e,ps])=>{const v=ps.reduce((a,p)=>a+posValue(p),0),rr=weightedPeriodReturn(ps);const pl=state.period==='total'?'Total':periodLabel();return `<article class="entity-card" data-entity="${esc(e)}"><div class="entity-main"><div><div class="entity-name">${entityWordmark(e)}</div><div class="entity-sub">${ps.length} ${ps.length===1?'fondo':'fondos'}</div></div><div class="entity-value">${eur(v)}<div class="entity-ytd ${rr===null?'muted':rr>=0?'metric-positive':'metric-negative'}">${rr===null?pl+' —':pct(rr)+' · '+pl}</div></div></div><div class="entity-detail">${ps.map(p=>{const ec=ENTITY[p.entity]||{fundColor:'#64748b'},pr=periodReturn(p),pl2=state.period==='total'?'Total':periodLabel();return `<div class="fund-row" data-pos="${esc(p.id)}" style="background:color-mix(in srgb, ${ec.fundColor} 11%, var(--panel));border-left:4px solid ${ec.fundColor}"><div><div class="fund-name">${esc(meta(p).name)}</div><div class="fund-meta">${esc(p.isin)} · ${esc(meta(p).theme)}</div></div><div class="fund-value">${eur(posValue(p))}<div class="trend">${pr===null?pl2+' —':pct(pr)+' · '+pl2}</div></div></div>`}).join('')}</div></article>`}).join('')||'<div class="notice">No hay posiciones para el periodo seleccionado.</div>';
  document.querySelectorAll('.entity-main').forEach(x=>x.onclick=()=>x.closest('.entity-card').classList.toggle('open'));document.querySelectorAll('.fund-row').forEach(x=>x.onclick=e=>{e.stopPropagation();openDetail(x.dataset.pos)});
 }
 function renderPositions(){
- const q=document.getElementById('positionSearch').value.trim().toLowerCase();const items=state.positions.filter(p=>meta(p).name.toLowerCase().includes(q)||p.isin.toLowerCase().includes(q));const groups={};items.forEach(p=>{const key=state.group==='entity'?p.entity:meta(p).theme;(groups[key]??=[]).push(p)});
- document.getElementById('positionsBody').innerHTML=Object.entries(groups).map(([g,ps])=>{const gv=ps.reduce((a,p)=>a+posValue(p),0);return `<section class="group-block"><div class="group-title ${state.group==='entity'?'bank-group-title':''}"><h3>${state.group==='entity'?entityWordmark(g):esc(g)}</h3><span>${eur(gv)}</span></div><div class="position-list">${ps.map(p=>{const m=meta(p),val=posValue(p),gain=val-p.invested,ret=p.invested?gain/p.invested*100:null,ec=ENTITY[p.entity]||{fundColor:'#64748b'};return `<article class="position-card" data-pos="${esc(p.id)}" style="background:color-mix(in srgb, ${ec.fundColor} 10%, var(--panel));border-left:4px solid ${ec.fundColor}"><div class="position-top"><div class="position-main"><div class="position-name">${esc(m.name)}</div><div class="position-isin">${esc(p.isin)} · ${esc(p.entity)} · ${esc(m.theme)}</div></div><div class="position-val">${eur(val)}</div></div><div class="position-result ${ret===null?'muted':ret>=0?'metric-positive':'metric-negative'}">Mi posición: ${gain>=0?'+':''}${eur(gain)} · ${pct(ret)}</div><div class="chips"><span class="chip">1M ${pct(p.m1)}</span><span class="chip">3M ${pct(p.m3)}</span><span class="chip">YTD ${pct(p.ytd)}</span></div>${p.navStatus==='provisional'?'<div class="pending-hint">VL provisional calculado desde la operación. Pendiente de fuente online.</div>':''}</article>`}).join('')}</div></section>`}).join('')||'<div class="notice">No hay posiciones que coincidan.</div>';
+ const q=document.getElementById('positionSearch').value.trim().toLowerCase();const items=positionsForPeriod().filter(p=>meta(p).name.toLowerCase().includes(q)||p.isin.toLowerCase().includes(q));const groups={};items.forEach(p=>{const key=state.group==='entity'?p.entity:meta(p).theme;(groups[key]??=[]).push(p)});
+ document.getElementById('positionsBody').innerHTML=Object.entries(groups).map(([g,ps])=>{const gv=ps.reduce((a,p)=>a+posValue(p),0);return `<section class="group-block"><div class="group-title ${state.group==='entity'?'bank-group-title':''}"><h3>${state.group==='entity'?entityWordmark(g):esc(g)}</h3><span>${eur(gv)}</span></div><div class="position-list">${ps.map(p=>{const m=meta(p),val=posValue(p),gain=val-p.invested,ret=totalReturn(p),pr=periodReturn(p),ec=ENTITY[p.entity]||{fundColor:'#64748b'};const line=state.period==='total'?`Mi posición: ${gain>=0?'+':''}${eur(gain)} · ${pct(ret)}`:`Rentabilidad ${periodLabel()}: ${pct(pr)}`;return `<article class="position-card" data-pos="${esc(p.id)}" style="background:color-mix(in srgb, ${ec.fundColor} 10%, var(--panel));border-left:4px solid ${ec.fundColor}"><div class="position-top"><div class="position-main"><div class="position-name">${esc(m.name)}</div><div class="position-isin">${esc(p.isin)} · ${esc(p.entity)} · ${esc(m.theme)}</div></div><div class="position-val">${eur(val)}</div></div><div class="position-result ${state.period==='total'?(ret===null?'muted':ret>=0?'metric-positive':'metric-negative'):(pr===null?'muted':pr>=0?'metric-positive':'metric-negative')}">${line}</div><div class="chips">${state.period==='total'?`<span class="chip">1M ${pct(p.m1)}</span><span class="chip">3M ${pct(p.m3)}</span><span class="chip">YTD ${pct(p.ytd)}</span>`:`<span class="chip">Año ${periodLabel()} ${pct(pr)}</span>`}</div>${p.navStatus==='provisional'?'<div class="pending-hint">VL provisional calculado desde la operación. Pendiente de fuente online.</div>':''}</article>`}).join('')}</div></section>`}).join('')||'<div class="notice">No hay posiciones para el periodo seleccionado.</div>';
  document.querySelectorAll('.position-card').forEach(x=>x.onclick=()=>openDetail(x.dataset.pos));
 }
 function renderOps(){
@@ -193,7 +212,7 @@ function renderOps(){
  document.querySelectorAll('[data-edit-basic]').forEach(card=>card.onclick=()=>openBasicOperation(card.dataset.editBasic));
 }
 function renderAnalysis(){const groups={};state.positions.forEach(p=>groups[meta(p).theme]=(groups[meta(p).theme]||0)+posValue(p));const t=total();document.getElementById('themeBars').innerHTML=t?Object.entries(groups).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="barrow"><div>${esc(k)}</div><div class="bartrack"><div class="barfill" style="width:${v/t*100}%;color:#334155"></div></div><div class="barval">${(v/t*100).toFixed(1).replace('.',',')}%</div></div>`).join(''):'<div class="notice">Sin posiciones.</div>'}
-function renderAll(){renderHome();renderPositions();renderOps();renderAnalysis()}
+function renderAll(){renderPeriodSelectors();renderHome();renderPositions();renderOps();renderAnalysis()}
 
 function rangeDate(range){const d=new Date();if(range==='M1')d.setMonth(d.getMonth()-1);else if(range==='M3')d.setMonth(d.getMonth()-3);else if(range==='M6')d.setMonth(d.getMonth()-6);else if(range==='Y1')d.setFullYear(d.getFullYear()-1);else if(range==='Y3')d.setFullYear(d.getFullYear()-3);else if(range==='YTD')return new Date(Date.UTC(d.getUTCFullYear(),0,1));else return new Date(0);return d}
 function seriesFor(p,range){const rows=navHistory[p.isin]||[];const target=rangeDate(range).getTime();return rows.filter(r=>new Date(r.nav_date+'T00:00:00Z').getTime()>=target).map(r=>+r.nav)}
