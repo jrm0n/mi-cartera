@@ -1,19 +1,9 @@
-MI CARTERA - CHANGELOG
-
-v0.2.0 Cloud - 2026-09-19
-- Conexión al proyecto Supabase propio del usuario.
-- Login con email y contraseña mediante Supabase Auth.
-- Sesión persistente con renovación automática.
-- Supabase/PostgreSQL pasa a ser la fuente de verdad de cartera y operaciones.
-- Copia local de lectura para poder mostrar la última cartera si falla temporalmente la conexión.
-- Sincronización al abrir la aplicación y mediante botón manual.
-- Escritura inmediata en la nube de operaciones y traspasos.
-- Traspasos pendientes editables y finalización atómica mediante RPC.
-- Posiciones reconstruidas desde el libro de operaciones, no desde datos demo.
-- Rentabilidades 1M/3M/YTD calculadas sólo si existe histórico NAV real en fund_navs.
-- Valoración provisional a partir del NAV de la operación cuando aún no existe NAV online.
-- Eliminados los movimientos de VL simulados.
-- Mantiene esquema de datos 1. Las futuras versiones de interfaz no borrarán los datos en Supabase.
-
-v0.1.0 Beta - 2026-09-19
-- Primera PWA instalable y almacenamiento local persistente.
+v0.3.0 Data - 2026-09-19
+- Identificación automática de fondos por ISIN mediante EODHD Search API.
+- Nombre, divisa, código del proveedor y último VL se guardan con trazabilidad de fuente.
+- Descarga inicial opcional de hasta un año de histórico EODHD al guardar una operación.
+- Categoría, gestora y benchmark: lectura del campo publicado por VDOS/Quefondos cuando está disponible. No se infiere ninguna temática por palabras clave.
+- Nuevo esquema de procedencia: data_provider, provider_symbol, metadata_source, category_source y fechas de descarga.
+- Se eliminan las temáticas manuales que migration 002 había sembrado para cinco ISIN de prueba.
+- Mantiene la edición de operaciones introducida en v0.2.1, incluida la corrección de entidad/banco.
+- Los datos de cartera continúan en Supabase y no se sobrescriben al actualizar la aplicación.

@@ -1,31 +1,26 @@
-MI CARTERA v0.2.0 CLOUD (BETA)
+MI CARTERA v0.3.0 DATA (BETA)
 
-REQUISITOS
-1. El proyecto Supabase debe tener aplicada la migración 001_schema_inicial.
-2. Antes de usar esta versión debe ejecutarse backend/002_cloud_helpers.sql en SQL Editor.
-3. config.js contiene únicamente Project URL + Publishable Key. Ambos son valores de cliente; NO contiene service_role, sb_secret ni contraseña de base de datos.
+ORDEN DE INSTALACION
+1. El secreto EODHD_API_TOKEN debe existir en Supabase Edge Function Secrets.
+2. Ejecutar backend/005_data_sources_v0.3.0.sql en Supabase SQL Editor.
+3. Crear/desplegar la Edge Function resolve-fund con supabase/functions/resolve-fund/index.ts.
+   IMPORTANTE: desactivar la comprobacion legacy de JWT de gateway para resolve-fund.
+   La funcion valida por si misma el token de usuario contra Supabase Auth.
+4. Probar resolve-fund con un usuario autenticado y el ISIN LU2466448532.
+5. Solo despues, subir a GitHub Pages los archivos de raiz, app.js, config.js,
+   manifest.webmanifest, sw.js, version.json e icons/.
 
-INSTALACIÓN PWA
-- La carpeta debe publicarse en un dominio HTTPS. Abrir index.html como file:// permite revisar el archivo, pero no ofrece una instalación PWA completa.
-- Chrome/Edge/Android: usar “Instalar aplicación” cuando aparezca o desde el menú del navegador.
-- iPhone/iPad: Safari > Compartir > Añadir a pantalla de inicio.
-- PC: Chrome/Edge > Instalar aplicación.
+FUENTES
+- EODHD: identificacion por ISIN, divisa, ultimo VL e historico EOD.
+- VDOS/Quefondos: categoria, gestora y referencia cuando el dato aparece expresamente
+  en la ficha publica. Si no aparece o la pagina no responde, queda Sin datos.
 
-SINCRONIZACIÓN
-- Supabase es la fuente de verdad.
-- Al iniciar sesión, la app descarga cuentas, operaciones, traspasos, fondos e histórico NAV.
-- Las operaciones nuevas se guardan primero en Supabase y después se vuelve a sincronizar la vista.
-- Móvil y PC verán los mismos datos si inician sesión con el mismo usuario.
-- La app conserva una copia local de lectura por dispositivo para mostrar la última cartera si Supabase no responde temporalmente.
+NO SE HACE
+- No hay regex para deducir tematicas a partir del nombre.
+- No se inventa una categoria cuando la fuente no la proporciona.
+- No se guarda la API key EODHD en GitHub ni en el navegador.
 
-VALORES LIQUIDATIVOS
-- v0.2.0 NO obtiene todavía el VL de una fuente externa.
-- Si fund_navs contiene datos, la app usa esos VL reales.
-- Si no existe NAV online, la app muestra una valoración provisional basada en el NAV implícito de la operación inicial (importe/participaciones) y lo identifica como provisional.
-- La tarea automática cada 24 horas se añadirá cuando se conecte una fuente de datos fiable para fondos.
-
-VERSIONADO Y DATOS
-- App: 0.2.0
-- Esquema: 1
-- Actualizar los archivos de la PWA no borra las tablas de Supabase.
-- Las futuras modificaciones de esquema se harán mediante migraciones numeradas.
+LIMITACION DEL PLAN EODHD FREE
+- La resolucion inicial de un ISIN desconocido consume una llamada Search.
+- La primera descarga de historico consume una llamada EOD adicional.
+- Una vez almacenado provider_symbol, las actualizaciones posteriores no necesitan repetir Search.
