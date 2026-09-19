@@ -102,7 +102,7 @@ async function fetchVdos(isin: string) {
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.3.1; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.3.3; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
@@ -124,7 +124,7 @@ async function fetchFinect(isin: string, name: string) {
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.3.1; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.3.3; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
@@ -202,7 +202,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const existingRows = await db(
-      `funds?isin=eq.${encodeURIComponent(isin)}&select=isin,name,manager,currency,theme,category,category_source,benchmark,data_provider,provider_symbol,metadata_source,metadata_fetched_at,category_fetched_at&limit=1`
+      `funds?isin=eq.${encodeURIComponent(isin)}&select=isin,name,manager,currency,theme,category,category_source,benchmark,data_provider,provider_symbol,instrument_type,metadata_source,metadata_fetched_at,category_fetched_at&limit=1`
     );
     const existing = Array.isArray(existingRows) ? existingRows[0] ?? null : null;
 
@@ -210,12 +210,12 @@ Deno.serve(async (req: Request) => {
     let name = existing?.name && existing.name !== isin ? existing.name : null;
     let currency = existing?.currency ?? null;
     let searchResult: any = null;
+    let instrumentType = existing?.instrument_type ?? null;
 
     if (!providerSymbol || !name || forceMetadata) {
       const searchUrl = new URL(`https://eodhd.com/api/search/${encodeURIComponent(isin)}`);
       searchUrl.searchParams.set("api_token", eodhdToken);
       searchUrl.searchParams.set("fmt", "json");
-      searchUrl.searchParams.set("type", "fund");
       searchUrl.searchParams.set("limit", "10");
 
       const searchResponse = await fetch(searchUrl);
@@ -225,13 +225,14 @@ Deno.serve(async (req: Request) => {
       const results = await searchResponse.json();
       if (!Array.isArray(results)) return json({ ok: false, error: "EODHD_INVALID_SEARCH_RESPONSE" }, 502);
 
-      const exact = results.filter((r: any) => normalizeIsin(r?.ISIN) === isin && String(r?.Type ?? "").toUpperCase() === "FUND");
+      const exact = results.filter((r: any) => normalizeIsin(r?.ISIN) === isin);
       searchResult = exact.find((r: any) => r?.Exchange === "EUFUND") ?? exact.find((r: any) => r?.isPrimary === true) ?? exact[0] ?? null;
-      if (!searchResult) return json({ ok: false, error: "FUND_NOT_FOUND", isin }, 404);
+      if (!searchResult) return json({ ok: false, error: "INSTRUMENT_NOT_FOUND", isin }, 404);
 
       providerSymbol = `${searchResult.Code}.${searchResult.Exchange}`;
       name = String(searchResult.Name || isin).trim();
       currency = String(searchResult.Currency || currency || "EUR").trim().toUpperCase();
+      instrumentType = String(searchResult.Type || instrumentType || "").trim().toUpperCase() || null;
     }
 
     const nowIso = new Date().toISOString();
@@ -269,6 +270,7 @@ Deno.serve(async (req: Request) => {
       currency: currency || "EUR",
       data_provider: "EODHD",
       provider_symbol: providerSymbol,
+      instrument_type: instrumentType,
       metadata_source: "EODHD Search API",
       metadata_fetched_at: nowIso,
       active: true,
@@ -387,6 +389,7 @@ Deno.serve(async (req: Request) => {
         benchmark: fund?.benchmark ?? benchmark ?? null,
         provider: "EODHD",
         provider_symbol: providerSymbol,
+        instrument_type: fund?.instrument_type ?? instrumentType ?? null,
         metadata_source: "EODHD Search API",
       },
       latest_nav: latest ? {

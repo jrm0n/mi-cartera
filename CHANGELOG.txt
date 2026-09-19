@@ -1,3 +1,12 @@
+v0.3.3 Corrección de operaciones existentes - 2026-09-19
+- Permite eliminar operaciones individuales desde el editor, con confirmación y recálculo posterior de la cartera.
+- Las operaciones antiguas pueden actualizar automáticamente su ficha de metadatos.
+- Añade botón "Actualizar ficha desde fuentes" en la edición.
+- El resolver por ISIN deja de limitarse a FUND y admite también ETF y otros instrumentos con ISIN exacto devueltos por EODHD.
+- Se guarda el tipo de instrumento (FUND/ETF/etc.) cuando la fuente lo devuelve.
+- Se restaura la búsqueda automática por ISIN que faltaba accidentalmente en app.js de v0.3.2.
+- Esquema de datos actualizado a versión 3.
+
 v0.3.2 Validación de operaciones - 2026-09-19
 - En compras, aportaciones, ventas y reembolsos se pueden introducir dos de tres datos: importe, participaciones y VL; la app calcula el tercero.
 - Se distingue fecha de orden de fecha efectiva de ejecución.

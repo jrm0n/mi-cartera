@@ -1,3 +1,9 @@
+v0.3.3 - Corrección de operaciones existentes
+1) Ejecutar backend/007_operation_management_v0.3.3.sql en Supabase SQL Editor.
+2) Sustituir el código de la Edge Function resolve-fund por supabase/functions/resolve-fund/index.ts y desplegar.
+3) Subir a GitHub Pages los archivos de la v0.3.3.
+4) Las operaciones existentes se pueden editar, actualizar desde fuentes o eliminar.
+
 MI CARTERA v0.3.0 DATA (BETA)
 
 ORDEN DE INSTALACION
