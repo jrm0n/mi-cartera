@@ -1,8 +1,14 @@
-const APP_VERSION='0.4.4';
+const APP_VERSION='0.4.5';
 const VALIDATION_TOLERANCE_PCT=0.1;
 const DATA_SCHEMA_VERSION=8;
 const CACHE_KEY='mi_cartera_cloud_cache_v1';
 const SESSION_KEY='mi_cartera_supabase_session_v1';
+function renderVersionLabels(){
+ const a=document.getElementById('appVersionLabel');if(a)a.textContent=`v${APP_VERSION}`;
+ const b=document.getElementById('appVersionAnalysis');if(b)b.textContent=`Mi Cartera v${APP_VERSION} Cloud`;
+ const c=document.getElementById('schemaVersionAnalysis');if(c)c.textContent=String(DATA_SCHEMA_VERSION);
+}
+
 const THEME_KEY='mi_cartera_theme';
 const AUTO_REFRESH_KEY='mi_cartera_last_auto_refresh_v2';
 const cfg=window.MI_CARTERA_CONFIG?.cloud||{};
@@ -432,8 +438,9 @@ let deferredInstallPrompt=null;window.addEventListener('beforeinstallprompt',e=>
 if('serviceWorker' in navigator){
  window.addEventListener('load',async()=>{
   try{
-   const reg=await navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'});
+   const reg=await navigator.serviceWorker.register(`./sw.js?v=${APP_VERSION}`,{updateViaCache:'none'});
    await reg.update().catch(()=>{});
+   if(reg.waiting)reg.waiting.postMessage({type:'SKIP_WAITING'});
    let reloading=false;
    navigator.serviceWorker.addEventListener('controllerchange',()=>{
     if(reloading)return; reloading=true; window.location.reload();
@@ -444,4 +451,5 @@ if('serviceWorker' in navigator){
   }catch(err){console.warn('Service worker',err)}
  });
 }
+renderVersionLabels();
 init();

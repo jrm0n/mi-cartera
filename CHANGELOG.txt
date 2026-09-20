@@ -117,3 +117,6 @@ v0.3.0 Data - 2026-09-19
 - Se eliminan las temáticas manuales que migration 002 había sembrado para cinco ISIN de prueba.
 - Mantiene la edición de operaciones introducida en v0.2.1, incluida la corrección de entidad/banco.
 - Los datos de cartera continúan en Supabase y no se sobrescriben al actualizar la aplicación.
+
+
+v0.4.5 - Corrección de actualización PWA y versión visible.
