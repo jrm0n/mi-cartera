@@ -1,3 +1,13 @@
+v0.3.7 - Cotizaciones ETF por mercado
+
+IMPORTANTE: antes de subir esta versión a GitHub:
+1) Ejecutar backend/008_etf_listings_v0.3.7.sql en Supabase SQL Editor.
+2) Sustituir y desplegar supabase/functions/resolve-fund/index.ts en la Edge Function resolve-fund.
+3) Subir el contenido de este paquete/parche a GitHub Pages.
+
+ETF YA EXISTENTE: no hay que volver a introducirlo. Abrir la operación, seleccionar Mercado / cotización y guardar.
+Para Tradegate, Mi Cartera consulta directamente Tradegate por ISIN y guarda esa cotización de forma separada.
+
 v0.3.6 - Corrección visual del logotipo de Trade Republic
 1) Ejecutar backend/007_operation_management_v0.3.4.sql en Supabase SQL Editor.
 2) Sustituir el código de la Edge Function resolve-fund por supabase/functions/resolve-fund/index.ts y desplegar.

@@ -1,3 +1,14 @@
+v0.3.7 Cotizaciones ETF por mercado - 2026-09-20
+- El ISIN de un ETF ya no determina por sí solo el precio usado para valorar la posición.
+- Alta y edición de operaciones muestran un desplegable Mercado / cotización cuando el instrumento es ETF o tiene varias admisiones.
+- Una operación ETF ya existente se corrige editándola y seleccionando la bolsa; no hace falta borrarla ni volver a introducirla.
+- Las cotizaciones se identifican por símbolo+mercado y se guardan en instrument_listings/listing_prices.
+- Tradegate se consulta directamente por ISIN: por ejemplo IE00BMC38736 se identifica como VVSM, Tradegate, EUR.
+- Si se selecciona Tradegate, la valoración usa el último precio publicado por Tradegate; no se sustituye silenciosamente por Xetra, Frankfurt, Londres u otra bolsa.
+- Si no existe histórico diario exacto verificable para la bolsa seleccionada, la app muestra que falta histórico en lugar de usar datos de otra cotización.
+- Los fondos tradicionales mantienen el flujo actual de VL por ISIN.
+- Esquema de datos actualizado a versión 4.
+
 v0.3.6 Contraste de texto en Resumen (modo oscuro) - 2026-09-19
 - El detalle desplegado por entidad usa la misma jerarquía de color que Posiciones.
 - Nombre y valor en blanco, metadatos en tono secundario y rentabilidad verde/roja según signo.
