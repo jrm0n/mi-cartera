@@ -1,3 +1,8 @@
+v0.4.6 - 2026-09-20
+- Añade una fuente de valoración Tradegate determinista por ISIN (boersennews.de) cuando MarketScreener no es accesible desde Supabase.
+- Mantiene Tradegate Last sólo como último fallback y conserva la fuente utilizada en el detalle.
+- Sin cambios de esquema de datos.
+
 v0.4.4 - 2026-09-20
 - Resolver de cierre Tradegate rehecho: descubrimiento por ISIN, verificacion del listing y cache de la URL de MarketScreener.
 - MarketScreener se consulta mediante URL cacheada en refrescos posteriores; si no puede validarse se conserva Tradegate Last como fallback visible.

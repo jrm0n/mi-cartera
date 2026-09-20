@@ -211,6 +211,86 @@ async function fetchTradegate(isin: string) {
 }
 
 
+function parseShortEuropeanDate(value: string) {
+  const m = String(value || "").match(/\b(\d{1,2})\.\s*(Jan|Feb|Mär|Mar|Apr|Mai|May|Jun|Jul|Aug|Sep|Okt|Oct|Nov|Dez|Dec)\b/i);
+  if (!m) return null;
+  const months: Record<string, number> = {
+    jan: 1, feb: 2, mär: 3, mar: 3, apr: 4, mai: 5, may: 5, jun: 6,
+    jul: 7, aug: 8, sep: 9, okt: 10, oct: 10, nov: 11, dez: 12, dec: 12,
+  };
+  const month = months[m[2].toLowerCase()];
+  if (!month) return null;
+  const day = Number(m[1]);
+  const now = new Date();
+  let year = now.getUTCFullYear();
+  let candidate = new Date(Date.UTC(year, month - 1, day));
+  // Around New Year, a December quote belongs to the previous year.
+  if (candidate.getTime() > now.getTime() + 3 * 86400000) {
+    year -= 1;
+    candidate = new Date(Date.UTC(year, month - 1, day));
+  }
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function htmlTableCells(rowHtml: string) {
+  const cells: string[] = [];
+  for (const m of rowHtml.matchAll(/<(?:td|th)\b[^>]*>([\s\S]*?)<\/(?:td|th)>/gi)) {
+    cells.push(decodeHtml(m[1]));
+  }
+  return cells;
+}
+
+async function fetchBoersennewsTradegateReference(isin: string) {
+  const sourceUrl = `https://www.boersennews.de/markt/fonds/detail/${encodeURIComponent(isin.toLowerCase())}/`;
+  try {
+    const response = await fetch(sourceUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.6; personal portfolio resolver)",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+        "Cache-Control": "no-cache",
+      },
+      redirect: "follow",
+    });
+    if (!response.ok) return { ok: false, sourceUrl, status: response.status, close: null, priceDate: null, source: null };
+    const html = await response.text();
+    if (!html.toUpperCase().includes(isin.toUpperCase())) return { ok: false, sourceUrl, status: response.status, close: null, priceDate: null, source: null };
+
+    // Prefer the exchange table row. It is keyed by the venue name and the last cell is the quoted course.
+    for (const row of html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+      if (!/Tradegate/i.test(row[1])) continue;
+      const cells = htmlTableCells(row[1]);
+      if (!cells.length || !cells.some((c) => /^Tradegate$/i.test(c.trim()))) continue;
+      const priceCell = [...cells].reverse().find((c) => /(?:EUR|€)/i.test(c) && /\d/.test(c));
+      const priceMatch = priceCell?.match(/([0-9]{1,4}(?:[.,][0-9]{1,4}))\s*(?:EUR|€)/i);
+      const close = parseDecimal(priceMatch?.[1] ?? null);
+      const dateCell = cells.find((c) => /\b\d{1,2}\.\s*(?:Jan|Feb|Mär|Mar|Apr|Mai|May|Jun|Jul|Aug|Sep|Okt|Oct|Nov|Dez|Dec)\b/i.test(c));
+      const priceDate = dateCell ? parseShortEuropeanDate(dateCell) : null;
+      if (close && priceDate) {
+        return { ok: true, sourceUrl: response.url || sourceUrl, close, priceDate, source: "boersennews.de · Tradegate reference close" };
+      }
+    }
+
+    // Fallback for pages where the table is flattened or partly rendered by the server.
+    const text = decodeHtml(html);
+    const idx = text.search(/\bTradegate\b/i);
+    if (idx >= 0) {
+      const segment = text.slice(idx, idx + 700);
+      const dateMatch = segment.match(/\b\d{1,2}\.\s*(?:Jan|Feb|Mär|Mar|Apr|Mai|May|Jun|Jul|Aug|Sep|Okt|Oct|Nov|Dez|Dec)\b/i);
+      const priceMatches = [...segment.matchAll(/([0-9]{1,4}(?:[.,][0-9]{1,4}))\s*(?:EUR|€)/gi)];
+      const close = priceMatches.length ? parseDecimal(priceMatches[priceMatches.length - 1][1]) : null;
+      const priceDate = dateMatch ? parseShortEuropeanDate(dateMatch[0]) : null;
+      if (close && priceDate) {
+        return { ok: true, sourceUrl: response.url || sourceUrl, close, priceDate, source: "boersennews.de · Tradegate reference close" };
+      }
+    }
+    return { ok: false, sourceUrl: response.url || sourceUrl, close: null, priceDate: null, source: null };
+  } catch (error) {
+    return { ok: false, sourceUrl, error: String(error), close: null, priceDate: null, source: null };
+  }
+}
+
+
 function marketScreenerAbsoluteUrl(base: string, href: string) {
   try { return new URL(href, base).toString(); } catch { return null; }
 }
@@ -488,7 +568,14 @@ Deno.serve(async (req: Request) => {
         await db(`instrument_listings?on_conflict=provider_symbol`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(row)});
         listings=[...listings.filter((l:any)=>l.provider_symbol!==row.provider_symbol),row];
         let valuationPrice=tradegate.last, valuationDate=tradegate.priceDate, valuationSource="Tradegate Exchange · Last (fallback)";
-        const marketClose=await fetchMarketScreenerTradegateClose(isin, row.valuation_source_url ?? null);
+        let marketClose=await fetchMarketScreenerTradegateClose(isin, row.valuation_source_url ?? null);
+        // MarketScreener can block/disallow server-side discovery. In that case use a
+        // deterministic ISIN URL at boersennews.de, whose Tradegate row currently
+        // matches the broker-style reference/close used by DEGIRO for this instrument.
+        if(!(marketClose.ok && marketClose.close && marketClose.priceDate)){
+          const altClose=await fetchBoersennewsTradegateReference(isin);
+          if(altClose.ok && altClose.close && altClose.priceDate) marketClose=altClose;
+        }
         if(marketClose.ok && marketClose.close && marketClose.priceDate){
           row.valuation_source_url = marketClose.sourceUrl;
           row.valuation_source_name = marketClose.source;

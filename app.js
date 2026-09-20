@@ -1,4 +1,4 @@
-const APP_VERSION='0.4.5';
+const APP_VERSION='0.4.6';
 const VALIDATION_TOLERANCE_PCT=0.1;
 const DATA_SCHEMA_VERSION=8;
 const CACHE_KEY='mi_cartera_cloud_cache_v1';

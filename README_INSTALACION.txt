@@ -1,3 +1,7 @@
+v0.4.6 - Valoración Tradegate con fallback por ISIN
+
+No requiere SQL nuevo. Actualizar resolve-fund en Supabase y después publicar el parche en GitHub.
+
 v0.4.4 - Cierre Tradegate robusto
 
 Cambios:
