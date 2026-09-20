@@ -1,3 +1,13 @@
+v0.4.0 Histórico proxy y gráfico nativo - 2026-09-20
+- Nuevo histórico aproximado por mercado proxy del mismo ISIN, con factor de calibración.
+- Proxy preferente de misma divisa; soporte FX si fuera necesario.
+- Gráfico canvas propio; se eliminan imágenes externas de Tradegate.
+- Rentabilidades aproximadas identificadas con ≈.
+- Separación entre rentabilidad del activo y resultado de la inversión personal.
+- Validación de operaciones sigue usando exclusivamente precios exactos.
+- Refresco de mercado y snapshots diarios desde la app.
+- Nueva Edge Function refresh-market-data y programación diaria opcional mediante pg_cron/pg_net.
+
 v0.3.9 Historial Tradegate y rentabilidades incompletas - 2026-09-20
 - Corregido el falso +0,00 % cuando sólo había un precio en listing_prices.
 - Rentabilidades sin base histórica suficiente pasan a mostrarse como —.

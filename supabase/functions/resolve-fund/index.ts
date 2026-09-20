@@ -102,7 +102,7 @@ async function fetchVdos(isin: string) {
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.3.3; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.0; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
@@ -124,7 +124,7 @@ async function fetchFinect(isin: string, name: string) {
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.3.3; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.0; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
@@ -181,7 +181,7 @@ async function fetchTradegate(isin: string) {
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.3.8; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.0; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
@@ -210,6 +210,57 @@ async function fetchTradegate(isin: string) {
   }
 }
 
+
+function proxyListingScore(target: any, candidate: any) {
+  if (!candidate || candidate.provider_symbol === target?.provider_symbol || isTradegateListing(candidate)) return -1e9;
+  let score = 0;
+  const tc = String(target?.currency || "").toUpperCase();
+  const cc = String(candidate?.currency || "").toUpperCase();
+  const ex = String(candidate?.exchange_code || "").toUpperCase();
+  if (tc && cc && tc === cc) score += 1000;
+  if (ex === "XETRA") score += 300;
+  if (ex === "F") score += 150;
+  if (String(candidate?.ticker || "").toUpperCase() === String(target?.ticker || "").toUpperCase()) score += 100;
+  if (candidate?.is_primary === true) score += 50;
+  if (String(candidate?.source || "").includes("EODHD")) score += 30;
+  return score;
+}
+
+function chooseProxyListing(target: any, listings: any[]) {
+  const candidates = (listings || [])
+    .filter((l: any) => l?.provider_symbol && String(l.provider_symbol).includes(".") && !isTradegateListing(l) && l.provider_symbol !== target?.provider_symbol)
+    .map((l: any) => ({ listing: l, score: proxyListingScore(target, l) }))
+    .filter((x: any) => x.score > -1e8)
+    .sort((a: any, b: any) => b.score - a.score);
+  return candidates[0]?.listing ?? null;
+}
+
+function daysBetween(a: string, b: string) {
+  return Math.abs(new Date(`${a}T00:00:00Z`).getTime() - new Date(`${b}T00:00:00Z`).getTime()) / 86400000;
+}
+
+function nearestRowByDate(rows: any[], date: string, maxGapDays = 7) {
+  let best: any = null;
+  for (const row of rows || []) {
+    if (!row?.price_date || !Number.isFinite(Number(row?.price))) continue;
+    const gap = daysBetween(row.price_date, date);
+    if (gap > maxGapDays) continue;
+    if (!best || gap < best.gap || (gap === best.gap && row.price_date <= date && best.row.price_date > date)) best = { row, gap };
+  }
+  return best?.row ?? null;
+}
+
+function nearestFxByDate(rows: any[], date: string, maxGapDays = 5) {
+  let best: any = null;
+  for (const row of rows || []) {
+    if (!row?.date || !Number.isFinite(Number(row?.price))) continue;
+    const gap = daysBetween(row.date, date);
+    if (gap > maxGapDays) continue;
+    if (!best || gap < best.gap || (gap === best.gap && row.date <= date && best.row.date > date)) best = { row, gap };
+  }
+  return best?.row ?? null;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
@@ -223,13 +274,18 @@ Deno.serve(async (req: Request) => {
 
     const authHeader = req.headers.get("Authorization") ?? "";
     if (!authHeader.toLowerCase().startsWith("bearer ")) return json({ ok:false,error:"AUTH_REQUIRED" },401);
-    const authResponse = await fetch(`${supabaseUrl}/auth/v1/user`, { headers:{ apikey:publishableKey, Authorization:authHeader } });
-    if (!authResponse.ok) return json({ ok:false,error:"INVALID_SESSION" },401);
+    const bearer=authHeader.slice(7).trim();
+    const internalServiceCall=bearer===secretKey;
+    if(!internalServiceCall){
+      const authResponse = await fetch(`${supabaseUrl}/auth/v1/user`, { headers:{ apikey:publishableKey, Authorization:authHeader } });
+      if (!authResponse.ok) return json({ ok:false,error:"INVALID_SESSION" },401);
+    }
 
     const body = await req.json().catch(() => ({}));
     const isin = normalizeIsin(body?.isin);
     const includeHistory = body?.include_history === true;
     const forceMetadata = body?.force_metadata === true;
+    const refreshQuote = body?.refresh_quote === true;
     const requestedListingSymbol = String(body?.listing_symbol ?? "").trim() || null;
     if (!validIsin(isin)) return json({ ok:false,error:"INVALID_ISIN",isin },400);
 
@@ -239,6 +295,39 @@ Deno.serve(async (req: Request) => {
       const text = await response.text(); let data:any=null; try{data=text?JSON.parse(text):null}catch{data=text}
       if(!response.ok) throw new Error(`DB_${response.status}: ${typeof data === "string" ? data : JSON.stringify(data)}`);
       return data;
+    }
+
+    async function fetchEodSeries(symbol:string, from:string) {
+      const u=new URL(`https://eodhd.com/api/eod/${encodeURIComponent(symbol)}`);
+      u.searchParams.set("api_token",eodhdToken);u.searchParams.set("fmt","json");u.searchParams.set("from",from);
+      const r=await fetch(u);
+      if(!r.ok) return {ok:false,status:r.status,details:(await r.text()).slice(0,500),rows:[] as any[]};
+      const data=await r.json();
+      if(!Array.isArray(data)) return {ok:false,status:502,details:"Invalid EOD response",rows:[] as any[]};
+      const rows=data.map((x:any)=>({date:x?.date,price:Number(x?.adjusted_close??x?.close)})).filter((x:any)=>/^\d{4}-\d{2}-\d{2}$/.test(String(x.date))&&Number.isFinite(x.price)&&x.price>0);
+      return {ok:true,status:r.status,details:null,rows};
+    }
+
+    async function ensureListingHistory(listing:any, fullHistory:boolean, refreshRecent:boolean) {
+      const symbol=String(listing.provider_symbol);
+      const exact=await db(`listing_prices?provider_symbol=eq.${encodeURIComponent(symbol)}&is_approximate=eq.false&select=price_date,price,currency,source,fetched_at&order=price_date.asc&limit=2500`);
+      const exactRows=Array.isArray(exact)?exact:[];
+      const oldest=exactRows[0]?.price_date??null;
+      const threshold=new Date();threshold.setUTCDate(threshold.getUTCDate()-330);
+      const useful=oldest&&new Date(`${oldest}T00:00:00Z`)<=threshold;
+      if((fullHistory&&!useful)||refreshRecent){
+        const from=new Date();
+        if(fullHistory&&!useful){from.setUTCFullYear(from.getUTCFullYear()-1);from.setUTCDate(from.getUTCDate()-7)}
+        else from.setUTCDate(from.getUTCDate()-10);
+        const fetched=await fetchEodSeries(symbol,from.toISOString().slice(0,10));
+        if(!fetched.ok) return {ok:false,error:"EODHD_HISTORY_FAILED",status:fetched.status,details:fetched.details,rows:exactRows,fetched:false,inserted:0};
+        const now=new Date().toISOString();
+        const rows=fetched.rows.map((x:any)=>({provider_symbol:symbol,price_date:x.date,price:x.price,currency:listing.currency||null,source:"EODHD EOD API",fetched_at:now,is_approximate:false,proxy_symbol:null,calibration_factor:null,approximation_method:null,calibration_date:null}));
+        for(let i=0;i<rows.length;i+=250) await db(`listing_prices?on_conflict=provider_symbol,price_date`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(rows.slice(i,i+250))});
+        const all=await db(`listing_prices?provider_symbol=eq.${encodeURIComponent(symbol)}&is_approximate=eq.false&select=price_date,price,currency,source,fetched_at&order=price_date.asc&limit=2500`);
+        return {ok:true,rows:Array.isArray(all)?all:rows,fetched:true,inserted:rows.length};
+      }
+      return {ok:true,rows:exactRows,fetched:false,inserted:0};
     }
 
     const existingRows = await db(`funds?isin=eq.${encodeURIComponent(isin)}&select=isin,name,manager,currency,theme,category,category_source,benchmark,data_provider,provider_symbol,instrument_type,metadata_source,metadata_fetched_at,category_fetched_at&limit=1`);
@@ -260,7 +349,7 @@ Deno.serve(async (req: Request) => {
       const nowIso=new Date().toISOString();
       const rows=searchResults.map((r:any)=>({provider_symbol:`${r.Code}.${r.Exchange}`,isin,ticker:String(r.Code),exchange_code:String(r.Exchange),exchange_name:exchangeDisplayName(String(r.Exchange)),currency:r.Currency?String(r.Currency).toUpperCase():null,instrument_type:r.Type?String(r.Type).toUpperCase():null,is_primary:r.isPrimary===true,source:"EODHD Search API",fetched_at:nowIso}));
       if(rows.length) await db(`instrument_listings?on_conflict=provider_symbol`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(rows)});
-      const prices=searchResults.filter((r:any)=>r?.previousClose!=null&&r?.previousCloseDate).map((r:any)=>({provider_symbol:`${r.Code}.${r.Exchange}`,price_date:r.previousCloseDate,price:Number(r.previousClose),currency:r.Currency?String(r.Currency).toUpperCase():null,source:"EODHD Search API",fetched_at:nowIso})).filter((r:any)=>Number.isFinite(r.price)&&r.price>0);
+      const prices=searchResults.filter((r:any)=>r?.previousClose!=null&&r?.previousCloseDate).map((r:any)=>({provider_symbol:`${r.Code}.${r.Exchange}`,price_date:r.previousCloseDate,price:Number(r.previousClose),currency:r.Currency?String(r.Currency).toUpperCase():null,source:"EODHD Search API",fetched_at:nowIso,is_approximate:false,proxy_symbol:null,calibration_factor:null,approximation_method:null,calibration_date:null})).filter((r:any)=>Number.isFinite(r.price)&&r.price>0);
       if(prices.length) await db(`listing_prices?on_conflict=provider_symbol,price_date`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(prices)});
       listings=[...listings.filter(l=>l.source!=="EODHD Search API"),...rows];
     }
@@ -275,7 +364,7 @@ Deno.serve(async (req: Request) => {
         const row={provider_symbol:tradegate.providerSymbol,isin,ticker:tradegate.ticker,exchange_code:tradegate.exchangeCode,exchange_name:tradegate.exchangeName,currency:tradegate.currency,instrument_type:tradegate.instrumentType||instrumentType||"ETF",is_primary:false,source:"Tradegate Exchange",fetched_at:nowIso};
         await db(`instrument_listings?on_conflict=provider_symbol`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(row)});
         listings=[...listings.filter((l:any)=>l.provider_symbol!==row.provider_symbol),row];
-        if(tradegate.last!=null&&tradegate.priceDate) await db(`listing_prices?on_conflict=provider_symbol,price_date`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({provider_symbol:row.provider_symbol,price_date:tradegate.priceDate,price:tradegate.last,currency:tradegate.currency,source:"Tradegate Exchange",fetched_at:nowIso})});
+        if(tradegate.last!=null&&tradegate.priceDate) await db(`listing_prices?on_conflict=provider_symbol,price_date`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({provider_symbol:row.provider_symbol,price_date:tradegate.priceDate,price:tradegate.last,currency:tradegate.currency,source:"Tradegate Exchange",fetched_at:nowIso,is_approximate:false,proxy_symbol:null,calibration_factor:null,approximation_method:null,calibration_date:null})});
       }
     }
 
@@ -319,17 +408,78 @@ Deno.serve(async (req: Request) => {
     const upserted=await db(`funds?on_conflict=isin`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=representation"},body:JSON.stringify(fundPayload)}); const fund=Array.isArray(upserted)?upserted[0]:upserted;
 
     let historyFetched=false,historyRowsInserted=0,historyReason:string|null=null;
-    if(selectedListing&&includeHistory&&String(selectedListing.provider_symbol).startsWith("TRADEGATE:")){
-      historyReason="EXACT_TRADEGATE_HISTORY_UNAVAILABLE";
-    }else if(selectedListing&&includeHistory){
-      const oldest=await db(`listing_prices?provider_symbol=eq.${encodeURIComponent(selectedListing.provider_symbol)}&select=price_date&order=price_date.asc&limit=1`); const oldestDate=Array.isArray(oldest)?oldest[0]?.price_date:null;
-      const threshold=new Date();threshold.setUTCDate(threshold.getUTCDate()-330); const hasUseful=oldestDate&&new Date(`${oldestDate}T00:00:00Z`)<=threshold;
-      if(!hasUseful){
-        const from=new Date();from.setUTCFullYear(from.getUTCFullYear()-1);from.setUTCDate(from.getUTCDate()-7);
-        const historyUrl=new URL(`https://eodhd.com/api/eod/${encodeURIComponent(selectedListing.provider_symbol)}`);historyUrl.searchParams.set("api_token",eodhdToken);historyUrl.searchParams.set("fmt","json");historyUrl.searchParams.set("from",from.toISOString().slice(0,10));
-        const hr=await fetch(historyUrl);if(!hr.ok){const msg=await hr.text();return json({ok:false,error:"EODHD_HISTORY_FAILED",status:hr.status,details:msg.slice(0,500),fund},502)} const history=await hr.json();if(!Array.isArray(history))return json({ok:false,error:"EODHD_INVALID_HISTORY_RESPONSE",fund},502);
-        const rows=history.map((r:any)=>({provider_symbol:selectedListing.provider_symbol,price_date:r?.date,price:Number(r?.adjusted_close??r?.close),currency:selectedListing.currency||masterCurrency,source:"EODHD EOD API",fetched_at:nowIso})).filter((r:any)=>/^\d{4}-\d{2}-\d{2}$/.test(String(r.price_date))&&Number.isFinite(r.price)&&r.price>0);
-        for(let i=0;i<rows.length;i+=250)await db(`listing_prices?on_conflict=provider_symbol,price_date`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(rows.slice(i,i+250))}); historyFetched=true;historyRowsInserted=rows.length;
+    let historyApproximate=false, proxyInfo:any=null;
+
+    if(selectedListing && (includeHistory || refreshQuote)){
+      const targetIsTradegate=isTradegateListing(selectedListing);
+      if(targetIsTradegate){
+        const proxy=chooseProxyListing(selectedListing,listings);
+        if(!proxy){
+          historyReason="NO_PROXY_LISTING_AVAILABLE";
+        }else{
+          const proxyHistory=await ensureListingHistory(proxy,includeHistory,refreshQuote);
+          if(!proxyHistory.ok){
+            historyReason="PROXY_HISTORY_UNAVAILABLE";
+          }else{
+            const targetExact=await db(`listing_prices?provider_symbol=eq.${encodeURIComponent(selectedListing.provider_symbol)}&is_approximate=eq.false&select=price_date,price,currency,source,fetched_at&order=price_date.desc&limit=50`);
+            const targetRows=Array.isArray(targetExact)?targetExact:[];
+            const anchorTarget=targetRows[0]??null;
+            const anchorProxy=anchorTarget?nearestRowByDate(proxyHistory.rows,anchorTarget.price_date,7):null;
+            if(!anchorTarget||!anchorProxy){
+              historyReason="PROXY_CALIBRATION_UNAVAILABLE";
+            }else{
+              const targetCurrency=String(selectedListing.currency||anchorTarget.currency||"").toUpperCase();
+              const proxyCurrency=String(proxy.currency||anchorProxy.currency||"").toUpperCase();
+              let method="same_currency_factor",fxSymbol:string|null=null,fxInverted=false,fxRows:any[]=[];
+              let anchorBase=Number(anchorProxy.price);
+              if(targetCurrency&&proxyCurrency&&targetCurrency!==proxyCurrency){
+                method="fx_adjusted";
+                const from=proxyHistory.rows[0]?.price_date ?? (()=>{const d=new Date();d.setUTCFullYear(d.getUTCFullYear()-1);return d.toISOString().slice(0,10)})();
+                let fx=await fetchEodSeries(`${proxyCurrency}${targetCurrency}.FOREX`,from);
+                if(fx.ok){fxSymbol=`${proxyCurrency}${targetCurrency}.FOREX`;fxRows=fx.rows;}
+                else{
+                  fx=await fetchEodSeries(`${targetCurrency}${proxyCurrency}.FOREX`,from);
+                  if(fx.ok){fxSymbol=`${targetCurrency}${proxyCurrency}.FOREX`;fxInverted=true;fxRows=fx.rows;}
+                }
+                const aFx=nearestFxByDate(fxRows,anchorTarget.price_date,7);
+                if(!aFx){historyReason="FX_HISTORY_UNAVAILABLE";}
+                else anchorBase*=fxInverted?(1/Number(aFx.price)):Number(aFx.price);
+              }
+              if(!historyReason){
+                const factor=Number(anchorTarget.price)/anchorBase;
+                const exactDates=new Set(targetRows.map((r:any)=>r.price_date));
+                const now=new Date().toISOString();
+                // Rebuild the approximate segment atomically enough for this use case:
+                // exact target rows are never deleted and therefore always win.
+                await db(`listing_prices?provider_symbol=eq.${encodeURIComponent(selectedListing.provider_symbol)}&is_approximate=eq.true`,{method:"DELETE",headers:{Prefer:"return=minimal"}});
+                const approx:any[]=[];
+                for(const pr of proxyHistory.rows){
+                  if(pr.price_date>anchorTarget.price_date||exactDates.has(pr.price_date))continue;
+                  let converted=Number(pr.price);
+                  if(method==="fx_adjusted"){
+                    const fr=nearestFxByDate(fxRows,pr.price_date,5);if(!fr)continue;
+                    converted*=fxInverted?(1/Number(fr.price)):Number(fr.price);
+                  }
+                  const price=converted*factor;
+                  if(!Number.isFinite(price)||price<=0)continue;
+                  approx.push({provider_symbol:selectedListing.provider_symbol,price_date:pr.price_date,price,currency:targetCurrency||selectedListing.currency||null,source:`Histórico aproximado · proxy ${proxy.exchange_name||proxy.exchange_code||proxy.provider_symbol}`,fetched_at:now,is_approximate:true,proxy_symbol:proxy.provider_symbol,calibration_factor:factor,approximation_method:method,calibration_date:anchorTarget.price_date});
+                }
+                for(let i=0;i<approx.length;i+=250) await db(`listing_prices?on_conflict=provider_symbol,price_date`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(approx.slice(i,i+250))});
+                await db(`listing_history_proxies?on_conflict=target_symbol`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({target_symbol:selectedListing.provider_symbol,proxy_symbol:proxy.provider_symbol,method,calibration_date:anchorTarget.price_date,calibration_factor:factor,target_currency:targetCurrency||null,proxy_currency:proxyCurrency||null,fx_symbol:fxSymbol,fx_inverted:fxInverted,source:"Mi Cartera proxy history",updated_at:now})});
+                historyFetched=proxyHistory.fetched||approx.length>0;historyRowsInserted=approx.length;historyApproximate=true;historyReason="PROXY_HISTORY";
+                proxyInfo={target_symbol:selectedListing.provider_symbol,proxy_symbol:proxy.provider_symbol,proxy_exchange:proxy.exchange_name||exchangeDisplayName(proxy.exchange_code),proxy_ticker:proxy.ticker,method,calibration_date:anchorTarget.price_date,calibration_factor:factor,target_currency:targetCurrency,proxy_currency:proxyCurrency,fx_symbol:fxSymbol,fx_inverted:fxInverted};
+              }
+            }
+          }
+        }
+      }else{
+        const exactHistory=await ensureListingHistory(selectedListing,includeHistory,refreshQuote);
+        if(!exactHistory.ok){
+          if(includeHistory) return json({ok:false,error:"EODHD_HISTORY_FAILED",status:exactHistory.status,details:exactHistory.details,fund},502);
+          historyReason="QUOTE_REFRESH_FAILED";
+        }else{
+          historyFetched=exactHistory.fetched;historyRowsInserted=exactHistory.inserted;
+        }
       }
     }
 
@@ -340,9 +490,9 @@ Deno.serve(async (req: Request) => {
     }
 
     let latest:any=null;
-    if(selectedListing){ const rows=await db(`listing_prices?provider_symbol=eq.${encodeURIComponent(selectedListing.provider_symbol)}&select=price_date,price,currency,source,fetched_at&order=price_date.desc&limit=1`); const r=Array.isArray(rows)?rows[0]??null:null;if(r)latest={date:r.price_date,nav:Number(r.price),currency:r.currency,source:r.source,fetched_at:r.fetched_at}; }
+    if(selectedListing){ const rows=await db(`listing_prices?provider_symbol=eq.${encodeURIComponent(selectedListing.provider_symbol)}&select=price_date,price,currency,source,fetched_at,is_approximate,proxy_symbol,calibration_factor,approximation_method,calibration_date&order=price_date.desc,is_approximate.asc&limit=1`); const r=Array.isArray(rows)?rows[0]??null:null;if(r)latest={date:r.price_date,nav:Number(r.price),currency:r.currency,source:r.source,fetched_at:r.fetched_at,is_approximate:r.is_approximate===true,proxy_symbol:r.proxy_symbol??null,calibration_factor:r.calibration_factor==null?null:Number(r.calibration_factor),approximation_method:r.approximation_method??null}; }
     else if(!requiresListing){ const rows=await db(`fund_navs?isin=eq.${encodeURIComponent(isin)}&select=nav_date,nav,currency,source,fetched_at&order=nav_date.desc&limit=1`);const r=Array.isArray(rows)?rows[0]??null:null;if(r)latest={date:r.nav_date,nav:Number(r.nav),currency:r.currency,source:r.source,fetched_at:r.fetched_at}; }
 
-    return json({ok:true,isin,fund:{isin,name:fund?.name??name,manager:fund?.manager??manager??null,currency:fund?.currency??masterCurrency,category:fund?.category??category??null,category_source:fund?.category_source??categorySource??null,benchmark:fund?.benchmark??benchmark??null,provider:"EODHD",provider_symbol:requiresListing?null:(selectedListing?.provider_symbol??null),instrument_type:fund?.instrument_type??instrumentType??null,metadata_source:"EODHD Search API"},requires_listing:requiresListing,listings:listings.map((l:any)=>({provider_symbol:l.provider_symbol,ticker:l.ticker,exchange_code:l.exchange_code,exchange_name:l.exchange_name||exchangeDisplayName(l.exchange_code),currency:l.currency,instrument_type:l.instrument_type,is_primary:l.is_primary===true,source:l.source})),selected_listing:selectedListing?{provider_symbol:selectedListing.provider_symbol,ticker:selectedListing.ticker,exchange_code:selectedListing.exchange_code,exchange_name:selectedListing.exchange_name||exchangeDisplayName(selectedListing.exchange_code),currency:selectedListing.currency,source:selectedListing.source}:null,latest_nav:latest,history:{requested:includeHistory,fetched:historyFetched,rows_inserted:historyRowsInserted,reason:historyReason},sources:{identity_nav:selectedListing&&String(selectedListing.provider_symbol).startsWith("TRADEGATE:")?"Tradegate Exchange":"EODHD",category:fund?.category_source??categorySource??null,manager:vdos.manager?"VDOS/Quefondos":(finect.manager?"Finect":null),benchmark:vdos.benchmark?"VDOS/Quefondos":(finect.benchmark?"Finect (datos Morningstar)":null),vdos_url:vdos.sourceUrl,finect_url:finect.sourceUrl,tradegate_url:tradegate.sourceUrl??null}});
+    return json({ok:true,isin,fund:{isin,name:fund?.name??name,manager:fund?.manager??manager??null,currency:fund?.currency??masterCurrency,category:fund?.category??category??null,category_source:fund?.category_source??categorySource??null,benchmark:fund?.benchmark??benchmark??null,provider:"EODHD",provider_symbol:requiresListing?null:(selectedListing?.provider_symbol??null),instrument_type:fund?.instrument_type??instrumentType??null,metadata_source:"EODHD Search API"},requires_listing:requiresListing,listings:listings.map((l:any)=>({provider_symbol:l.provider_symbol,ticker:l.ticker,exchange_code:l.exchange_code,exchange_name:l.exchange_name||exchangeDisplayName(l.exchange_code),currency:l.currency,instrument_type:l.instrument_type,is_primary:l.is_primary===true,source:l.source})),selected_listing:selectedListing?{provider_symbol:selectedListing.provider_symbol,ticker:selectedListing.ticker,exchange_code:selectedListing.exchange_code,exchange_name:selectedListing.exchange_name||exchangeDisplayName(selectedListing.exchange_code),currency:selectedListing.currency,source:selectedListing.source}:null,latest_nav:latest,history:{requested:includeHistory,fetched:historyFetched,rows_inserted:historyRowsInserted,reason:historyReason,approximate:historyApproximate,proxy:proxyInfo},sources:{identity_nav:selectedListing&&String(selectedListing.provider_symbol).startsWith("TRADEGATE:")?"Tradegate Exchange":"EODHD",category:fund?.category_source??categorySource??null,manager:vdos.manager?"VDOS/Quefondos":(finect.manager?"Finect":null),benchmark:vdos.benchmark?"VDOS/Quefondos":(finect.benchmark?"Finect (datos Morningstar)":null),vdos_url:vdos.sourceUrl,finect_url:finect.sourceUrl,tradegate_url:tradegate.sourceUrl??null,history_proxy:proxyInfo}});
   } catch(error){ console.error(error); return json({ok:false,error:"UNEXPECTED_ERROR",details:String(error)},500); }
 });

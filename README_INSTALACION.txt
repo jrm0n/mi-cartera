@@ -1,10 +1,15 @@
-v0.3.9 - Corrección de rentabilidades sin histórico y gráfico oficial Tradegate
+v0.4.0 - Histórico proxy y gráfico nativo
 
-No requiere cambios en Supabase ni redeploy de resolve-fund.
-Subir todo el contenido del parche a GitHub Pages y forzar recarga.
+- Elimina los gráficos-imagen de Tradegate.
+- Reconstruye, cuando falta histórico exacto del mercado seleccionado, una serie aproximada usando otro mercado del mismo ISIN.
+- Prioriza proxy en la misma divisa (Xetra cuando está disponible) y calibra por proporcionalidad con una fecha común.
+- Si el proxy usa otra divisa, admite ajuste FX con histórico EODHD.
+- Las series aproximadas se marcan con ≈ y nunca se usan para validar operaciones con el umbral del 0,1 %.
+- Separa rentabilidad del activo de resultado total de la posición.
+- Resumen, Posiciones y detalle usan la misma lógica de rentabilidad.
+- El botón Actualizar cartera refresca cotizaciones y va acumulando snapshots diarios en Supabase.
+- Al abrir la app se intenta una actualización diaria automática, con límite conservador de instrumentos para el plan gratuito.
 
-Cambios:
-- Evita mostrar +0,00 % cuando sólo existe una cotización y no hay histórico suficiente.
-- En esos casos muestra —, no un dato falso.
-- Para posiciones Tradegate muestra los gráficos oficiales publicados por Tradegate (1M, 1A y 5A).
-- Mantiene la valoración actual por la cotización exacta de Tradegate.
+Actualización diaria servidor:
+- Edge Function refresh-market-data con bloqueo de 18 h para proteger la cuota.
+- 011_daily_refresh_v0.4.0.sql programa la llamada diaria a las 06:30 UTC.
