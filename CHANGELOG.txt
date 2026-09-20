@@ -1,3 +1,9 @@
+v0.4.7 - 2026-09-20
+- Formato monetario español uniforme: punto de miles, coma decimal y dos decimales en importes.
+- Precio/VL mostrado con mínimo 2 y hasta 4 decimales, conservando precisión cuando existe.
+- Ejes de precio de los gráficos con formato numérico español.
+- Sin cambios de esquema de datos ni backend.
+
 v0.4.6 - 2026-09-20
 - Añade una fuente de valoración Tradegate determinista por ISIN (boersennews.de) cuando MarketScreener no es accesible desde Supabase.
 - Mantiene Tradegate Last sólo como último fallback y conserva la fuente utilizada en el detalle.

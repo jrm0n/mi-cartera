@@ -1,4 +1,4 @@
-v0.4.6 - Valoración Tradegate con fallback por ISIN
+v0.4.7 - Formato monetario español uniforme
 
 No requiere SQL nuevo. Actualizar resolve-fund en Supabase y después publicar el parche en GitHub.
 
