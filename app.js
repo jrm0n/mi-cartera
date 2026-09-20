@@ -1,6 +1,6 @@
-const APP_VERSION='0.4.3';
+const APP_VERSION='0.4.4';
 const VALIDATION_TOLERANCE_PCT=0.1;
-const DATA_SCHEMA_VERSION=6;
+const DATA_SCHEMA_VERSION=8;
 const CACHE_KEY='mi_cartera_cloud_cache_v1';
 const SESSION_KEY='mi_cartera_supabase_session_v1';
 const THEME_KEY='mi_cartera_theme';

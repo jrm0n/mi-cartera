@@ -102,7 +102,7 @@ async function fetchVdos(isin: string) {
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.3; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.4; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
@@ -124,7 +124,7 @@ async function fetchFinect(isin: string, name: string) {
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.3; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.4; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
@@ -181,7 +181,7 @@ async function fetchTradegate(isin: string) {
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.3; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.4; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
@@ -223,51 +223,112 @@ function parseMarketScreenerDate(segment: string) {
   return null;
 }
 
-async function fetchMarketScreenerTradegateClose(isin: string) {
+function isMarketScreenerInstrumentUrl(value: string) {
+  try {
+    const u = new URL(value);
+    if (!/(^|\.)marketscreener\.com$/i.test(u.hostname)) return false;
+    return /\/(?:quote|cotizacion|kurs|quotazioni|koers)\/(?:etf|stock)\//i.test(u.pathname);
+  } catch { return false; }
+}
+
+function normalizeSearchHref(base: string, rawHref: string) {
+  const href = rawHref.replace(/&amp;/gi, '&').trim();
+  try {
+    const u = new URL(href, base);
+    const uddg = u.searchParams.get('uddg');
+    if (uddg) {
+      const decoded = decodeURIComponent(uddg);
+      if (isMarketScreenerInstrumentUrl(decoded)) return decoded.split('#')[0];
+    }
+    if (isMarketScreenerInstrumentUrl(u.toString())) return u.toString().split('#')[0];
+  } catch { /* ignore */ }
+  return null;
+}
+
+async function parseMarketScreenerTradegatePage(sourceUrl: string, isin: string, headers: Record<string,string>) {
+  try {
+    const r = await fetch(sourceUrl, { headers, redirect: 'follow' });
+    if (!r.ok) return null;
+    const html = await r.text();
+    const text = decodeHtml(html);
+    if (!text.includes(isin) || !/Tradegate/i.test(text)) return null;
+
+    // The instrument page must itself correspond to the Tradegate listing.
+    const marketMarker = text.search(/(?:Market Closed|Mercado cerrado|B[öo]rse geschlossen|Mercato chiuso|March[ée] ferm[ée]|Beurs gesloten)\s*-\s*Tradegate/i);
+    if (marketMarker < 0) return null;
+
+    const segment = text.slice(marketMarker, marketMarker + 2200);
+    const priceDate = parseMarketScreenerDate(segment);
+    let close: number | null = null;
+
+    // Main header price immediately after the closed-market marker.
+    const headerPrice = segment.match(/([0-9]{1,4}(?:[.,][0-9]{1,4}))\s*(?:EUR|€)/i);
+    close = parseDecimal(headerPrice?.[1] ?? null);
+
+    // Fallback: first quote row for the latest date on the Tradegate page.
+    if (!close) {
+      const quoteRow = text.match(/(?:Quotes|Cotizaciones|Kurse|Quotazioni)[\s\S]{0,1800}?(20\d{2}-\d{2}-\d{2}|\d{2}[.\/-]\d{2}[.\/-]20\d{2})\s+(?:€\s*)?([0-9]{1,4}(?:[.,][0-9]{1,4}))/i);
+      close = parseDecimal(quoteRow?.[2] ?? null);
+    }
+
+    if (!close || !priceDate) return null;
+    return { ok: true, sourceUrl: r.url || sourceUrl, close, priceDate, source: 'MarketScreener · Tradegate close' };
+  } catch { return null; }
+}
+
+async function discoverMarketScreenerTradegatePage(isin: string, headers: Record<string,string>) {
+  const query = `site:marketscreener.com \"${isin}\" Tradegate ETF`;
   const searchUrls = [
-    `https://de.marketscreener.com/suchen/wertpapiere?q=${encodeURIComponent(isin)}`,
     `https://www.marketscreener.com/search/?q=${encodeURIComponent(isin)}`,
+    `https://de.marketscreener.com/suchen/wertpapiere?q=${encodeURIComponent(isin)}`,
+    `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
+    `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`,
+    `https://www.bing.com/search?q=${encodeURIComponent(query)}`,
   ];
-  const headers = {
-    "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.3; personal portfolio resolver)",
-    "Accept": "text/html,application/xhtml+xml",
-  };
   const candidates: string[] = [];
+
   for (const searchUrl of searchUrls) {
     try {
-      const r = await fetch(searchUrl, { headers, redirect: "follow" });
+      const r = await fetch(searchUrl, { headers, redirect: 'follow' });
       if (!r.ok) continue;
       const html = await r.text();
       for (const m of html.matchAll(/href=["']([^"']+)["']/gi)) {
-        const href = m[1];
-        if (!/(?:\/quote\/etf\/|\/kurs\/etf\/|\/cotizacion\/etf\/|\/koers\/etf\/)/i.test(href)) continue;
-        const abs = marketScreenerAbsoluteUrl(r.url || searchUrl, href);
+        const abs = normalizeSearchHref(r.url || searchUrl, m[1]);
         if (abs && !candidates.includes(abs)) candidates.push(abs);
       }
-    } catch { /* fallback below */ }
+      // Some search engines expose result URLs as plain text rather than hrefs.
+      for (const m of html.matchAll(/https?:\/\/[^\s"'<>]+marketscreener\.com\/[^\s"'<>]+/gi)) {
+        const raw = m[0].replace(/&amp;/gi, '&');
+        if (isMarketScreenerInstrumentUrl(raw) && !candidates.includes(raw)) candidates.push(raw);
+      }
+    } catch { /* try next discovery source */ }
   }
+  return candidates.slice(0, 20);
+}
 
-  for (const baseUrl of candidates.slice(0, 12)) {
-    const urls = [baseUrl, `${baseUrl.replace(/\/$/, "")}/quotes/`];
+async function fetchMarketScreenerTradegateClose(isin: string, cachedUrl: string | null = null) {
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9,es;q=0.8',
+    'Cache-Control': 'no-cache',
+  };
+
+  const directCandidates: string[] = [];
+  if (cachedUrl && isMarketScreenerInstrumentUrl(cachedUrl)) directCandidates.push(cachedUrl);
+
+  const discovered = await discoverMarketScreenerTradegatePage(isin, headers);
+  for (const u of discovered) if (!directCandidates.includes(u)) directCandidates.push(u);
+
+  for (const baseUrl of directCandidates) {
+    const urls = [baseUrl, `${baseUrl.replace(/\/$/, '')}/quotes/`, `${baseUrl.replace(/\/$/, '')}/cotizaciones/`];
     for (const sourceUrl of urls) {
-      try {
-        const r = await fetch(sourceUrl, { headers, redirect: "follow" });
-        if (!r.ok) continue;
-        const text = decodeHtml(await r.text());
-        if (!text.includes(isin) || !/Tradegate/i.test(text)) continue;
-        const marketMarker = text.search(/(?:Market Closed|B[öo]rse geschlossen|Mercado cerrado|Beurs gesloten)\s*-\s*Tradegate/i);
-        if (marketMarker < 0) continue;
-        const segment = text.slice(marketMarker, marketMarker + 650);
-        const priceMatch = segment.match(/([0-9]{1,4}(?:[.,][0-9]{1,4}))\s*(?:EUR|€)/i);
-        const close = parseDecimal(priceMatch?.[1] ?? null);
-        const priceDate = parseMarketScreenerDate(segment);
-        if (close && priceDate) {
-          return { ok: true, sourceUrl: r.url || sourceUrl, close, priceDate, source: "MarketScreener · Tradegate close" };
-        }
-      } catch { /* try next candidate */ }
+      const parsed = await parseMarketScreenerTradegatePage(sourceUrl, isin, headers);
+      if (parsed) return parsed;
     }
   }
-  return { ok: false, sourceUrl: searchUrls[0], close: null, priceDate: null, source: null };
+
+  return { ok: false, sourceUrl: cachedUrl, close: null, priceDate: null, source: null };
 }
 
 
@@ -392,7 +453,7 @@ Deno.serve(async (req: Request) => {
 
     const existingRows = await db(`funds?isin=eq.${encodeURIComponent(isin)}&select=isin,name,manager,currency,theme,category,category_source,benchmark,data_provider,provider_symbol,instrument_type,metadata_source,metadata_fetched_at,category_fetched_at&limit=1`);
     const existing = Array.isArray(existingRows) ? existingRows[0] ?? null : null;
-    let listings:any[] = await db(`instrument_listings?isin=eq.${encodeURIComponent(isin)}&select=provider_symbol,isin,ticker,exchange_code,exchange_name,currency,instrument_type,is_primary,source,fetched_at&order=is_primary.desc,exchange_code.asc,ticker.asc`);
+    let listings:any[] = await db(`instrument_listings?isin=eq.${encodeURIComponent(isin)}&select=provider_symbol,isin,ticker,exchange_code,exchange_name,currency,instrument_type,is_primary,source,fetched_at,valuation_source_url,valuation_source_name,valuation_source_checked_at&order=is_primary.desc,exchange_code.asc,ticker.asc`);
     if(!Array.isArray(listings)) listings=[];
 
     let searchResults:any[]=[];
@@ -422,12 +483,17 @@ Deno.serve(async (req: Request) => {
       if(tradegate.ok){
         const nowIso=new Date().toISOString();
         if(tradegate.instrumentType) instrumentType=tradegate.instrumentType;
-        const row={provider_symbol:tradegate.providerSymbol,isin,ticker:tradegate.ticker,exchange_code:tradegate.exchangeCode,exchange_name:tradegate.exchangeName,currency:tradegate.currency,instrument_type:tradegate.instrumentType||instrumentType||"ETF",is_primary:false,source:"Tradegate Exchange",fetched_at:nowIso};
+        const cachedTradegate = listings.find((l:any)=>l.provider_symbol===tradegate.providerSymbol) ?? null;
+        const row={provider_symbol:tradegate.providerSymbol,isin,ticker:tradegate.ticker,exchange_code:tradegate.exchangeCode,exchange_name:tradegate.exchangeName,currency:tradegate.currency,instrument_type:tradegate.instrumentType||instrumentType||"ETF",is_primary:false,source:"Tradegate Exchange",fetched_at:nowIso,valuation_source_url:cachedTradegate?.valuation_source_url??null,valuation_source_name:cachedTradegate?.valuation_source_name??null,valuation_source_checked_at:cachedTradegate?.valuation_source_checked_at??null};
         await db(`instrument_listings?on_conflict=provider_symbol`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(row)});
         listings=[...listings.filter((l:any)=>l.provider_symbol!==row.provider_symbol),row];
         let valuationPrice=tradegate.last, valuationDate=tradegate.priceDate, valuationSource="Tradegate Exchange · Last (fallback)";
-        const marketClose=await fetchMarketScreenerTradegateClose(isin);
+        const marketClose=await fetchMarketScreenerTradegateClose(isin, row.valuation_source_url ?? null);
         if(marketClose.ok && marketClose.close && marketClose.priceDate){
+          row.valuation_source_url = marketClose.sourceUrl;
+          row.valuation_source_name = marketClose.source;
+          row.valuation_source_checked_at = nowIso;
+          await db(`instrument_listings?provider_symbol=eq.${encodeURIComponent(row.provider_symbol)}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({valuation_source_url:row.valuation_source_url,valuation_source_name:row.valuation_source_name,valuation_source_checked_at:row.valuation_source_checked_at})});
           const direct=Number(tradegate.last);
           const close=Number(marketClose.close);
           const sameOrNewer=!tradegate.priceDate||String(marketClose.priceDate)>=String(tradegate.priceDate);
@@ -459,7 +525,7 @@ Deno.serve(async (req: Request) => {
     const requiresListing=listings.length>1||String(instrumentType||"").includes("ETF");
     let selectedListing:any=null;
     if(requestedListingSymbol){
-      const requestedRaw=(await db(`instrument_listings?provider_symbol=eq.${encodeURIComponent(requestedListingSymbol)}&select=provider_symbol,isin,ticker,exchange_code,exchange_name,currency,instrument_type,is_primary,source,fetched_at&limit=1`));
+      const requestedRaw=(await db(`instrument_listings?provider_symbol=eq.${encodeURIComponent(requestedListingSymbol)}&select=provider_symbol,isin,ticker,exchange_code,exchange_name,currency,instrument_type,is_primary,source,fetched_at,valuation_source_url,valuation_source_name,valuation_source_checked_at&limit=1`));
       const raw=Array.isArray(requestedRaw)?requestedRaw[0]??null:null;
       const wantsTradegate=String(requestedListingSymbol).startsWith("TRADEGATE:")||isTradegateListing(raw);
       if(wantsTradegate){
@@ -574,6 +640,6 @@ Deno.serve(async (req: Request) => {
     if(selectedListing){ const rows=await db(`listing_prices?provider_symbol=eq.${encodeURIComponent(selectedListing.provider_symbol)}&select=price_date,price,currency,source,fetched_at,is_approximate,proxy_symbol,calibration_factor,approximation_method,calibration_date&order=price_date.desc,is_approximate.asc&limit=1`); const r=Array.isArray(rows)?rows[0]??null:null;if(r)latest={date:r.price_date,nav:Number(r.price),currency:r.currency,source:r.source,fetched_at:r.fetched_at,is_approximate:r.is_approximate===true,proxy_symbol:r.proxy_symbol??null,calibration_factor:r.calibration_factor==null?null:Number(r.calibration_factor),approximation_method:r.approximation_method??null}; }
     else if(!requiresListing){ const rows=await db(`fund_navs?isin=eq.${encodeURIComponent(isin)}&select=nav_date,nav,currency,source,fetched_at&order=nav_date.desc&limit=1`);const r=Array.isArray(rows)?rows[0]??null:null;if(r)latest={date:r.nav_date,nav:Number(r.nav),currency:r.currency,source:r.source,fetched_at:r.fetched_at}; }
 
-    return json({ok:true,isin,fund:{isin,name:fund?.name??name,manager:fund?.manager??manager??null,currency:fund?.currency??masterCurrency,category:fund?.category??category??null,category_source:fund?.category_source??categorySource??null,benchmark:fund?.benchmark??benchmark??null,provider:"EODHD",provider_symbol:requiresListing?null:(selectedListing?.provider_symbol??null),instrument_type:fund?.instrument_type??instrumentType??null,metadata_source:"EODHD Search API"},requires_listing:requiresListing,listings:listings.map((l:any)=>({provider_symbol:l.provider_symbol,ticker:l.ticker,exchange_code:l.exchange_code,exchange_name:l.exchange_name||exchangeDisplayName(l.exchange_code),currency:l.currency,instrument_type:l.instrument_type,is_primary:l.is_primary===true,source:l.source})),selected_listing:selectedListing?{provider_symbol:selectedListing.provider_symbol,ticker:selectedListing.ticker,exchange_code:selectedListing.exchange_code,exchange_name:selectedListing.exchange_name||exchangeDisplayName(selectedListing.exchange_code),currency:selectedListing.currency,source:selectedListing.source}:null,latest_nav:latest,history:{requested:includeHistory,fetched:historyFetched,rows_inserted:historyRowsInserted,reason:historyReason,approximate:historyApproximate,proxy:proxyInfo},sources:{identity_nav:selectedListing&&String(selectedListing.provider_symbol).startsWith("TRADEGATE:")?"Tradegate Exchange":"EODHD",category:fund?.category_source??categorySource??null,manager:vdos.manager?"VDOS/Quefondos":(finect.manager?"Finect":null),benchmark:vdos.benchmark?"VDOS/Quefondos":(finect.benchmark?"Finect (datos Morningstar)":null),vdos_url:vdos.sourceUrl,finect_url:finect.sourceUrl,tradegate_url:tradegate.sourceUrl??null,history_proxy:proxyInfo}});
+    return json({ok:true,isin,fund:{isin,name:fund?.name??name,manager:fund?.manager??manager??null,currency:fund?.currency??masterCurrency,category:fund?.category??category??null,category_source:fund?.category_source??categorySource??null,benchmark:fund?.benchmark??benchmark??null,provider:"EODHD",provider_symbol:requiresListing?null:(selectedListing?.provider_symbol??null),instrument_type:fund?.instrument_type??instrumentType??null,metadata_source:"EODHD Search API"},requires_listing:requiresListing,listings:listings.map((l:any)=>({provider_symbol:l.provider_symbol,ticker:l.ticker,exchange_code:l.exchange_code,exchange_name:l.exchange_name||exchangeDisplayName(l.exchange_code),currency:l.currency,instrument_type:l.instrument_type,is_primary:l.is_primary===true,source:l.source,valuation_source_name:l.valuation_source_name??null})),selected_listing:selectedListing?{provider_symbol:selectedListing.provider_symbol,ticker:selectedListing.ticker,exchange_code:selectedListing.exchange_code,exchange_name:selectedListing.exchange_name||exchangeDisplayName(selectedListing.exchange_code),currency:selectedListing.currency,source:selectedListing.source,valuation_source_name:selectedListing.valuation_source_name??null}:null,latest_nav:latest,history:{requested:includeHistory,fetched:historyFetched,rows_inserted:historyRowsInserted,reason:historyReason,approximate:historyApproximate,proxy:proxyInfo},sources:{identity_nav:selectedListing&&String(selectedListing.provider_symbol).startsWith("TRADEGATE:")?"Tradegate Exchange":"EODHD",category:fund?.category_source??categorySource??null,manager:vdos.manager?"VDOS/Quefondos":(finect.manager?"Finect":null),benchmark:vdos.benchmark?"VDOS/Quefondos":(finect.benchmark?"Finect (datos Morningstar)":null),vdos_url:vdos.sourceUrl,finect_url:finect.sourceUrl,tradegate_url:tradegate.sourceUrl??null,history_proxy:proxyInfo}});
   } catch(error){ console.error(error); return json({ok:false,error:"UNEXPECTED_ERROR",details:String(error)},500); }
 });

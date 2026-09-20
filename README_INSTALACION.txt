@@ -1,3 +1,15 @@
+v0.4.4 - Cierre Tradegate robusto
+
+Cambios:
+- Descubre automaticamente la pagina MarketScreener del mismo ISIN/listing Tradegate cuando no existe una URL cacheada.
+- Verifica ISIN + mercado Tradegate antes de aceptar el precio.
+- Usa el cierre publicado por MarketScreener cuando puede validarse; Tradegate Last queda solo como respaldo.
+- Guarda la URL de la fuente de valoracion en Supabase para refrescos posteriores.
+- Mantiene el historico proxy de Xetra y la separacion entre rentabilidad del activo y de la posicion.
+
+Migracion nueva:
+- 013_quote_source_cache_v0.4.4.sql
+
 v0.4.3 - Arranque actualizado y cierre de mercado
 
 Cambios:

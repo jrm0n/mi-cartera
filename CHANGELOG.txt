@@ -1,3 +1,8 @@
+v0.4.4 - 2026-09-20
+- Resolver de cierre Tradegate rehecho: descubrimiento por ISIN, verificacion del listing y cache de la URL de MarketScreener.
+- MarketScreener se consulta mediante URL cacheada en refrescos posteriores; si no puede validarse se conserva Tradegate Last como fallback visible.
+- Nueva migracion 013 para cachear la fuente externa por listing.
+
 v0.4.3 - 2026-09-20
 - La valoración de Tradegate prioriza el cierre de mercado de MarketScreener cuando puede verificarse para el mismo ISIN/listado.
 - Se conserva Tradegate Last como respaldo, no como cierre de valoración.
