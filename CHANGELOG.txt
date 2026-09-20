@@ -1,3 +1,10 @@
+v0.4.8 - 2026-09-20
+- El selector anual de Resumen y Posiciones calcula ahora la rentabilidad de la posición del usuario, no el YTD del activo desde 1 de enero.
+- Si la posición nace dentro del año, el periodo comienza en la compra/posición inicial; con una única compra en el año, Año y Total coinciden.
+- Para posiciones ya existentes al comenzar el año se usa el valor de apertura del periodo y se incorporan compras/ventas del año.
+- La ficha de detalle mantiene separada la rentabilidad del activo (YTD de mercado) de la rentabilidad de la inversión.
+- La agregación por entidad/cartera se calcula como P&L del periodo / capital del periodo, evitando ponderar incorrectamente por valor actual.
+
 v0.4.7 - 2026-09-20
 - Formato monetario español uniforme: punto de miles, coma decimal y dos decimales en importes.
 - Precio/VL mostrado con mínimo 2 y hasta 4 decimales, conservando precisión cuando existe.
