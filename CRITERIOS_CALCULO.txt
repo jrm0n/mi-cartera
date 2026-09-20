@@ -1,4 +1,4 @@
-MI CARTERA v0.5.0 - CRITERIOS DE CALCULO
+MI CARTERA v0.5.1 - CRITERIOS DE CALCULO
 
 1. Posicion actual
    Participaciones actuales = suma de shares_delta de operaciones completadas de la misma cuenta, ISIN y cotizacion.
@@ -46,6 +46,8 @@ MI CARTERA v0.5.0 - CRITERIOS DE CALCULO
 
 10. Posicion con Base 2026
    La base es el valor total de la inversion a 01/01/2026 segun los datos aportados por el usuario; no es el VL de una participacion.
+   Para crearla sólo se solicitan la base y las participaciones actuales; la fecha, el VL/precio y el importe tecnico se obtienen de la ultima cotizacion disponible.
+   Si el VL/precio esta en otra divisa, el valor actual se convierte a EUR antes de compararlo con la base.
    Rentabilidad 2026 = (valor final + salidas - base - aportaciones posteriores) / (base + aportaciones posteriores).
    Si el coste anterior al punto de seguimiento es desconocido, la rentabilidad total historica se muestra como N/D.
    La base se guarda como metadato estructurado en notes y no modifica el esquema de datos.

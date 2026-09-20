@@ -1,3 +1,9 @@
+v0.5.1 - Alta simplificada de Base 2026
+
+No requiere SQL nuevo ni cambios en Supabase. Publica los archivos del parche en la raiz del repositorio de GitHub.
+
+En "Base 2026" sólo se introducen la entidad, el ISIN, la base a 01/01/2026 y las participaciones actuales. La app obtiene automáticamente el último VL/precio y su fecha. Si la cotización no está en euros, convierte el valor actual a EUR antes de calcular la rentabilidad anual.
+
 v0.5.0 - Posiciones con base de referencia 2026
 
 No requiere SQL nuevo. La opción "Base 2026" guarda el valor de referencia a 01/01/2026 en la propia operación y permite calcular la rentabilidad anual aunque se desconozca el histórico anterior.

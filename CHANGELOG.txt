@@ -1,3 +1,10 @@
+v0.5.1 - 2026-09-20
+- "Base 2026" sólo pide la entidad, el ISIN, la base a 01/01/2026 y las participaciones actuales.
+- La fecha, el VL/precio y el importe técnico se completan automáticamente con la última cotización disponible.
+- Las posiciones cuyo VL está en otra divisa se convierten a euros con el tipo de cambio del BCE antes de compararlas con la base en euros.
+- Se elimina de este flujo la validación de dos de tres datos propia de compras, ventas y aportaciones.
+- No requiere cambios SQL ni una nueva migración de Supabase.
+
 v0.5.0 - 2026-09-20
 - Nueva opción "Base 2026" en el alta y edición de operaciones.
 - Permite registrar una posición cuyo histórico anterior es desconocido indicando el valor de referencia a 01/01/2026.
