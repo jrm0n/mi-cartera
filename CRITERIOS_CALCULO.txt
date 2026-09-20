@@ -1,0 +1,43 @@
+MI CARTERA v0.4.9 - CRITERIOS DE CALCULO
+
+1. Posicion actual
+   Participaciones actuales = suma de shares_delta de operaciones completadas de la misma cuenta, ISIN y cotizacion.
+   Las operaciones pendientes no entran en la posicion.
+
+2. Precio / VL actual
+   Fondos: ultimo VL numerico disponible de fund_navs.
+   ETF/listados: ultimo precio exacto (is_approximate=false) de la cotizacion seleccionada.
+   Un historico proxy nunca se usa para valorar la posicion actual.
+
+3. Valor actual
+   Valor actual = participaciones actuales x precio/VL actual.
+
+4. Coste vivo de la posicion
+   Compras/aportaciones/posicion inicial: aumenta por el importe de adquisicion mas gastos registrados.
+   Ventas/reembolsos: reducen el coste vivo por coste medio de las participaciones que salen.
+   El importe de venta no altera el coste medio de las participaciones que permanecen.
+
+5. Rentabilidad total de la posicion abierta
+   Resultado no realizado = valor actual - coste vivo.
+   Rentabilidad total = resultado no realizado / coste vivo.
+
+6. Rentabilidad personal de un ano
+   Si la posicion ya existia al inicio del ano: capital inicial = participaciones iniciales x precio de referencia al inicio del ano.
+   Se suman compras/aportaciones del ano y se descuentan ventas/reembolsos como cobros en el resultado.
+   Si la posicion nace dentro del ano, el periodo comienza con las compras de ese ano.
+   Por eso, si toda la posicion se compro en 2026 y no hubo ventas, rentabilidad 2026 y Total coinciden.
+
+7. Rentabilidad del activo
+   Se calcula exclusivamente con precios/VL del activo, sin tener en cuenta las operaciones del usuario.
+   Puede usar un historico proxy del mismo ISIN cuando falte historia del mercado seleccionado.
+   En ese caso se marca siempre con el simbolo aproximado (≈).
+   El punto final de la rentabilidad y del grafico es siempre el precio exacto usado para valorar la posicion actual.
+
+8. Agregacion por entidad/cartera
+   Valor = suma de valores actuales de las posiciones.
+   Rentabilidad personal del periodo = suma de resultados del periodo / suma de capitales del periodo.
+   No se pondera por valor actual.
+
+9. Datos aproximados
+   Nunca validan operaciones ni sustituyen el precio actual del mercado seleccionado.
+   Solo se usan para historicos/rentabilidades del activo o precios de referencia historicos, marcados como aproximados.

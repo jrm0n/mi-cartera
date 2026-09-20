@@ -1,4 +1,4 @@
-v0.4.8 - Rentabilidad anual de la posición
+v0.4.9 - Rentabilidad anual de la posición
 
 No requiere SQL nuevo. Actualizar resolve-fund en Supabase y después publicar el parche en GitHub.
 

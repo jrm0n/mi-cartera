@@ -1,4 +1,4 @@
-const APP_VERSION='0.4.8';
+const APP_VERSION='0.4.9';
 const VALIDATION_TOLERANCE_PCT=0.1;
 const DATA_SCHEMA_VERSION=8;
 const CACHE_KEY='mi_cartera_cloud_cache_v1';
@@ -37,7 +37,7 @@ let cloudAccounts=[];
 let navHistory={};
 let listingHistory={};
 let session=null;
-let state={positions:[],operations:[],funds:{},listings:{},group:'entity',opFilter:'all',period:String(new Date().getFullYear()),lastValue:null,lastNavUpdate:null,updatedAt:null};
+let state={positions:[],operations:[],calculationOperations:[],funds:{},listings:{},group:'entity',opFilter:'all',period:String(new Date().getFullYear()),lastValue:null,lastNavUpdate:null,updatedAt:null};
 
 function formatNumberES(value,minDecimals=2,maxDecimals=2){
  const n=Number(value);if(!Number.isFinite(n))return '—';
@@ -59,38 +59,87 @@ const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const posValue=p=>(+p.shares||0)*(+p.nav||0);
 const meta=p=>state.funds?.[p.isin]||{name:p.isin,theme:'Sin clasificar',manager:'—',currency:'EUR'};
 const total=()=>state.positions.reduce((a,p)=>a+posValue(p),0);
-function totalReturnInfo(p){const capital=+p.invested||0,pnl=posValue(p)-capital;return capital>0?{value:pnl/capital*100,capital,pnl,approximate:false,proxySymbol:null,method:'cost_basis'}:{value:null,capital:0,pnl:0,approximate:false,proxySymbol:null,method:null}}
+
+// --- Motor de calculo v0.4.9 -------------------------------------------------
+// Criterios:
+// 1) La valoracion actual usa SIEMPRE un precio/VL exacto del mercado seleccionado.
+//    Los historicos proxy solo sirven para curvas y rendimientos historicos aproximados.
+// 2) Valor actual = participaciones actuales x precio/VL actual exacto.
+// 3) Coste vivo = coste medio de las participaciones que siguen abiertas. Las ventas
+//    reducen el coste por coste medio; el precio de venta no altera el coste vivo.
+// 4) Rentabilidad total de la posicion abierta = (valor actual - coste vivo) / coste vivo.
+// 5) Rentabilidad anual personal usa valor inicial del ano + flujos del ano + valor final.
+//    Si la posicion nace dentro del ano, el capital parte de las compras de ese ano.
+// 6) Rentabilidad del ACTIVO es independiente de la del inversor y puede usar proxy,
+//    siempre marcado como aproximado.
+function validPriceRow(r){return !!r&&/^\d{4}-\d{2}-\d{2}$/.test(String(r.nav_date||''))&&Number.isFinite(+r.nav)&&+r.nav>0}
+function normalizeSeries(rows){
+ const byDate=new Map();
+ for(const r of rows||[]){
+  if(!validPriceRow(r))continue;
+  const prev=byDate.get(r.nav_date);
+  // En la misma fecha siempre gana el dato exacto frente al aproximado.
+  if(!prev||prev.isApproximate&&!r.isApproximate||prev.isApproximate===r.isApproximate&&String(r.fetched_at||'')>String(prev.fetched_at||''))byDate.set(r.nav_date,r);
+ }
+ return [...byDate.values()].sort((a,b)=>String(a.nav_date).localeCompare(String(b.nav_date)));
+}
+function latestExactRow(series){for(let i=(series?.length||0)-1;i>=0;i--){const r=series[i];if(validPriceRow(r)&&!r.isApproximate)return r}return null}
+function previousExactRow(series,latest){if(!latest)return null;let foundLatest=false;for(let i=(series?.length||0)-1;i>=0;i--){const r=series[i];if(!validPriceRow(r)||r.isApproximate)continue;if(!foundLatest&&r.nav_date===latest.nav_date&&+r.nav===+latest.nav){foundLatest=true;continue}return r}return latest}
+function totalReturnInfo(p){const capital=+p.invested||0,pnl=posValue(p)-capital;return capital>0?{value:pnl/capital*100,capital,pnl,approximate:false,proxySymbol:null,method:'open_cost_basis'}:{value:null,capital:0,pnl:0,approximate:false,proxySymbol:null,method:null}}
 function totalReturn(p){return totalReturnInfo(p).value}
+function positionSeries(p){
+ const raw=p.listingSymbol?(listingHistory[p.listingSymbol]||[]):(navHistory[p.isin]||[]);
+ const rows=normalizeSeries(raw);
+ // Garantia: el punto final del grafico coincide con el precio que valora la posicion.
+ if(p.navStatus==='online'&&p.navDate&&Number.isFinite(+p.nav)&&+p.nav>0){
+  const current={nav_date:p.navDate,nav:+p.nav,currency:p.navCurrency||null,source:p.navSource||null,fetched_at:p.navFetchedAt||null,isApproximate:false,proxySymbol:null,calibrationFactor:null,approximationMethod:null,calibrationDate:null};
+  const idx=rows.findIndex(r=>r.nav_date===current.nav_date);
+  if(idx<0)rows.push(current);else if(rows[idx].isApproximate)rows[idx]=current;
+  rows.sort((a,b)=>a.nav_date.localeCompare(b.nav_date));
+ }
+ return rows;
+}
+function opEffectiveDate(o){return o.executionDate||o.operationDate||o.date||null}
+function positionOperations(p){
+ const target=canonicalListingSymbol(p.isin,p.listingSymbol||null);
+ return (state.calculationOperations||state.operations||[]).filter(o=>o.status==='done'&&o.accountId===p.accountId&&o.isin===p.isin&&Number.isFinite(+o.sharesDelta)&&canonicalListingSymbol(o.isin,o.listingSymbol||null)===target).sort((a,b)=>String(opEffectiveDate(a)||'').localeCompare(String(opEffectiveDate(b)||'')));
+}
+function firstRowOnOrAfter(series,date,maxGapDays=14){const target=new Date(date+'T00:00:00Z').getTime();for(const r of series){if(r.nav_date<date)continue;const gap=(new Date(r.nav_date+'T00:00:00Z').getTime()-target)/86400000;if(gap<=maxGapDays)return r;break}return null}
+function lastRowOnOrBefore(series,date,maxGapDays=14){const target=new Date(date+'T00:00:00Z').getTime();for(let i=series.length-1;i>=0;i--){const r=series[i];if(r.nav_date>date)continue;const gap=(target-new Date(r.nav_date+'T00:00:00Z').getTime())/86400000;if(gap<=maxGapDays)return r;break}return null}
+function returnBetween(series,startDate,endPrice,endDate,maxGapDays=14){
+ if(!(endPrice>0)||!endDate)return{value:null,approximate:false,proxySymbol:null,method:null};
+ const base=firstRowOnOrAfter(series,startDate,maxGapDays);if(!base||base.nav_date>=endDate)return{value:null,approximate:false,proxySymbol:null,method:null};
+ const used=series.filter(r=>r.nav_date>=base.nav_date&&r.nav_date<=endDate);const approxRow=used.find(r=>r.isApproximate)||base.isApproximate&&base||null;
+ return{value:(endPrice/(+base.nav)-1)*100,approximate:!!approxRow,proxySymbol:approxRow?.proxySymbol||null,method:approxRow?.approximationMethod||'asset_period'};
+}
 function assetPeriodReturnInfo(p,period=state.period){
  if(period==='total')return totalReturnInfo(p);
  const year=Number(period);if(!Number.isInteger(year))return{value:null,approximate:false,proxySymbol:null,method:null};
- const source=p.listingSymbol?(listingHistory[p.listingSymbol]||[]):(navHistory[p.isin]||[]);const series=source.filter(r=>r.nav_date&&Number.isFinite(+r.nav)&&+r.nav>0);if(series.length<2)return{value:null,approximate:false,proxySymbol:null,method:null};
  const yearEnd=`${year}-12-31`;if(p.start&&p.start>yearEnd)return{value:null,approximate:false,proxySymbol:null,method:null};
- const startDate=`${year}-01-01`;const endDate=year===new Date().getFullYear()?'9999-12-31':yearEnd;
- let base=null,endRow=null,baseIndex=-1,endIndex=-1;
- for(let i=0;i<series.length;i++){const r=series[i];if(r.nav_date>=startDate&&!base){base=r;baseIndex=i}if(r.nav_date<=endDate){endRow=r;endIndex=i}}
- if(!base||!endRow||endRow.nav_date<=base.nav_date)return{value:null,approximate:false,proxySymbol:null,method:null};
- const startTime=new Date(startDate+'T00:00:00Z').getTime(),baseTime=new Date(base.nav_date+'T00:00:00Z').getTime();if(Math.abs(baseTime-startTime)/86400000>14)return{value:null,approximate:false,proxySymbol:null,method:null};
- const used=series.slice(baseIndex,endIndex+1);const approxRow=used.find(r=>r.isApproximate);return{value:(+endRow.nav/+base.nav-1)*100,approximate:!!approxRow,proxySymbol:approxRow?.proxySymbol||null,method:approxRow?.approximationMethod||'asset_period'};
+ const series=positionSeries(p);if(series.length<2)return{value:null,approximate:false,proxySymbol:null,method:null};
+ const startDate=`${year}-01-01`,currentYear=new Date().getFullYear();
+ if(year===currentYear)return returnBetween(series,startDate,+p.nav||null,p.navDate||null,14);
+ const end=lastRowOnOrBefore(series,yearEnd,14);if(!end)return{value:null,approximate:false,proxySymbol:null,method:null};
+ return returnBetween(series,startDate,+end.nav,end.nav_date,14);
 }
-function positionSeries(p){return (p.listingSymbol?(listingHistory[p.listingSymbol]||[]):(navHistory[p.isin]||[])).filter(r=>r.nav_date&&Number.isFinite(+r.nav)&&+r.nav>0)}
-function opEffectiveDate(o){return o.executionDate||o.date||null}
-function positionOperations(p){const target=canonicalListingSymbol(p.isin,p.listingSymbol||null);return (state.operations||[]).filter(o=>o.type!=='Traspaso'&&o.status==='done'&&o.accountId===p.accountId&&o.isin===p.isin&&canonicalListingSymbol(o.isin,o.listingSymbol||null)===target&&Number.isFinite(+o.sharesDelta)).sort((a,b)=>String(opEffectiveDate(a)||'').localeCompare(String(opEffectiveDate(b)||'')))}
-function firstRowOnOrAfter(series,date,maxGapDays=14){const target=new Date(date+'T00:00:00Z').getTime();for(const r of series){if(r.nav_date<date)continue;const gap=(new Date(r.nav_date+'T00:00:00Z').getTime()-target)/86400000;if(gap<=maxGapDays)return r;break}return null}
-function lastRowOnOrBefore(series,date,maxGapDays=14){const target=new Date(date+'T00:00:00Z').getTime();for(let i=series.length-1;i>=0;i--){const r=series[i];if(r.nav_date>date)continue;const gap=(target-new Date(r.nav_date+'T00:00:00Z').getTime())/86400000;if(gap<=maxGapDays)return r;break}return null}
 function positionPeriodReturnInfo(p,period=state.period){
  if(period==='total')return totalReturnInfo(p);
  const year=Number(period);if(!Number.isInteger(year))return{value:null,capital:0,pnl:0,approximate:false,proxySymbol:null,method:null};
  const startDate=`${year}-01-01`,yearEnd=`${year}-12-31`,currentYear=new Date().getFullYear(),endDate=year===currentYear?(p.navDate||new Date().toISOString().slice(0,10)):yearEnd;
  if(p.start&&p.start>yearEnd)return{value:null,capital:0,pnl:0,approximate:false,proxySymbol:null,method:null};
  const ops=positionOperations(p);if(!ops.length)return{value:null,capital:0,pnl:0,approximate:false,proxySymbol:null,method:'operations_unavailable'};
- const before=ops.filter(o=>opEffectiveDate(o)&&opEffectiveDate(o)<startDate);const within=ops.filter(o=>{const d=opEffectiveDate(o);return d&&d>=startDate&&d<=endDate});const throughEnd=ops.filter(o=>{const d=opEffectiveDate(o);return d&&d<=endDate});
+ const before=ops.filter(o=>opEffectiveDate(o)&&opEffectiveDate(o)<startDate),within=ops.filter(o=>{const d=opEffectiveDate(o);return d&&d>=startDate&&d<=endDate}),throughEnd=ops.filter(o=>{const d=opEffectiveDate(o);return d&&d<=endDate});
  const openingShares=before.reduce((a,o)=>a+(+o.sharesDelta||0),0),endingShares=throughEnd.reduce((a,o)=>a+(+o.sharesDelta||0),0);
  if(year===currentYear&&Math.abs(endingShares-(+p.shares||0))>1e-6)return{value:null,capital:0,pnl:0,approximate:false,proxySymbol:null,method:'share_mismatch'};
- const series=positionSeries(p);let openingValue=0,openingApprox=false,openingProxy=null;if(openingShares>1e-10){const row=firstRowOnOrAfter(series,startDate,14);if(!row)return{value:null,capital:0,pnl:0,approximate:false,proxySymbol:null,method:'opening_price_unavailable'};openingValue=openingShares*(+row.nav);openingApprox=!!row.isApproximate;openingProxy=row.proxySymbol||null}
- let endPrice=null,endApprox=false,endProxy=null;if(year===currentYear){endPrice=+p.nav||null;endApprox=false}else{const row=lastRowOnOrBefore(series,yearEnd,14);if(row){endPrice=+row.nav;endApprox=!!row.isApproximate;endProxy=row.proxySymbol||null}}if(!(endPrice>0))return{value:null,capital:0,pnl:0,approximate:false,proxySymbol:null,method:'ending_price_unavailable'};
- let purchases=0,sales=0;for(const o of within){const delta=+o.sharesDelta||0,amount=Math.abs(+o.amount||0),fees=Math.max(0,+o.fees||0);if(delta>0)purchases+=amount+fees;else if(delta<0)sales+=Math.max(0,amount-fees)}
- const capital=openingValue+purchases,endValue=Math.max(0,endingShares)*endPrice,pnl=endValue+sales-openingValue-purchases;if(!(capital>0))return{value:null,capital:0,pnl,approximate:openingApprox||endApprox,proxySymbol:openingProxy||endProxy||null,method:'no_capital'};
+ const series=positionSeries(p);let openingValue=0,openingApprox=false,openingProxy=null;
+ if(openingShares>1e-10){const row=firstRowOnOrAfter(series,startDate,14);if(!row)return{value:null,capital:0,pnl:0,approximate:false,proxySymbol:null,method:'opening_price_unavailable'};openingValue=openingShares*(+row.nav);openingApprox=!!row.isApproximate;openingProxy=row.proxySymbol||null}
+ let endPrice=null,endApprox=false,endProxy=null;
+ if(year===currentYear){endPrice=+p.nav||null;endApprox=false}else{const row=lastRowOnOrBefore(series,yearEnd,14);if(row){endPrice=+row.nav;endApprox=!!row.isApproximate;endProxy=row.proxySymbol||null}}
+ if(!(endPrice>0))return{value:null,capital:0,pnl:0,approximate:false,proxySymbol:null,method:'ending_price_unavailable'};
+ let purchases=0,sales=0;
+ for(const o of within){const delta=+o.sharesDelta||0,amount=Math.abs(+o.amount||0),fees=Math.max(0,+o.fees||0);if(delta>0)purchases+=amount+fees;else if(delta<0)sales+=Math.max(0,amount-fees)}
+ const capital=openingValue+purchases,endValue=Math.max(0,endingShares)*endPrice,pnl=endValue+sales-openingValue-purchases;
+ if(!(capital>0))return{value:null,capital:0,pnl,approximate:openingApprox||endApprox,proxySymbol:openingProxy||endProxy||null,method:'no_capital'};
  return{value:pnl/capital*100,capital,pnl,approximate:openingApprox||endApprox,proxySymbol:openingProxy||endProxy||null,method:'personal_period_roi'};
 }
 function periodReturnInfo(p,period=state.period){return positionPeriodReturnInfo(p,period)}
@@ -216,30 +265,55 @@ function nearestReturn(series,targetDate,maxGapDays=14){return nearestReturnInfo
 function buildPositions(operations,accounts,funds,navRows,listingPriceRows=[]){
  const accountMap=Object.fromEntries(accounts.map(a=>[a.id,a]));
  const fundMap=Object.fromEntries(funds.map(f=>[f.isin,f]));
- const byIsin={};for(const n of navRows){(byIsin[n.isin]??=[]).push(n)}for(const arr of Object.values(byIsin))arr.sort((a,b)=>a.nav_date.localeCompare(b.nav_date));
- const byListing={};for(const r of listingPriceRows){(byListing[r.provider_symbol]??=[]).push({nav_date:r.price_date,nav:+r.price,currency:r.currency,source:r.source,fetched_at:r.fetched_at,isApproximate:r.is_approximate===true,proxySymbol:r.proxy_symbol||null,calibrationFactor:r.calibration_factor==null?null:+r.calibration_factor,approximationMethod:r.approximation_method||null,calibrationDate:r.calibration_date||null})}for(const arr of Object.values(byListing))arr.sort((a,b)=>a.nav_date.localeCompare(b.nav_date));
+ const byIsin={};for(const n of navRows){(byIsin[n.isin]??=[]).push({nav_date:n.nav_date,nav:+n.nav,currency:n.currency,source:n.source,fetched_at:n.fetched_at,isApproximate:false,proxySymbol:null,calibrationFactor:null,approximationMethod:null,calibrationDate:null})}for(const k of Object.keys(byIsin))byIsin[k]=normalizeSeries(byIsin[k]);
+ const byListing={};for(const r of listingPriceRows){(byListing[r.provider_symbol]??=[]).push({nav_date:r.price_date,nav:+r.price,currency:r.currency,source:r.source,fetched_at:r.fetched_at,isApproximate:r.is_approximate===true,proxySymbol:r.proxy_symbol||null,calibrationFactor:r.calibration_factor==null?null:+r.calibration_factor,approximationMethod:r.approximation_method||null,calibrationDate:r.calibration_date||null})}for(const k of Object.keys(byListing))byListing[k]=normalizeSeries(byListing[k]);
  navHistory=byIsin;listingHistory=byListing;
  const groups=new Map();
- const completed=operations.filter(o=>o.status==='completed'&&o.shares_delta!==null);
- completed.sort((a,b)=>(a.operation_date||'').localeCompare(b.operation_date||'')||(a.created_at||'').localeCompare(b.created_at||''));
+ const completed=operations.filter(o=>o.status==='completed'&&o.shares_delta!==null).sort((a,b)=>String(oDate(a)).localeCompare(String(oDate(b)))||String(a.created_at||'').localeCompare(String(b.created_at||'')));
+ function oDate(o){return o.execution_date||o.operation_date||o.request_date||''}
  for(const o of completed){
-   const acc=accountMap[o.account_id];if(!acc)continue;const listingSymbol=canonicalListingSymbol(o.isin,o.listing_symbol||null);const key=o.account_id+'|'+o.isin+'|'+(listingSymbol||'');let g=groups.get(key);if(!g)g={id:key,accountId:o.account_id,isin:o.isin,entity:CODE_TO_ENTITY[acc.institution_code]||acc.institution_code,listingSymbol,shares:0,invested:0,start:o.operation_date,latestOpNav:null,latestOpDate:null};
-   const delta=+o.shares_delta||0;const amount=+o.amount||0,opNav=+o.nav||0,expected=Math.abs(delta)*opNav;
-   const inputDiff=amount>0&&expected>0?Math.abs(amount/expected-1)*100:0;
-   if(inputDiff>=VALIDATION_TOLERANCE_PCT)continue;
-   if(delta>0){g.invested+=amount>0?amount:(expected>0?expected:0)}else if(delta<0&&g.shares>0){const ratio=Math.min(1,Math.abs(delta)/g.shares);g.invested=Math.max(0,g.invested*(1-ratio))}
-   g.shares+=delta;if(+o.nav>0&&(!g.latestOpDate||o.operation_date>=g.latestOpDate)){g.latestOpNav=+o.nav;g.latestOpDate=o.operation_date}if(o.operation_date<g.start)g.start=o.operation_date;groups.set(key,g);
+  const acc=accountMap[o.account_id];if(!acc)continue;
+  const listingSymbol=canonicalListingSymbol(o.isin,o.listing_symbol||null),key=o.account_id+'|'+o.isin+'|'+(listingSymbol||''),date=oDate(o);
+  let g=groups.get(key);if(!g)g={id:key,accountId:o.account_id,isin:o.isin,entity:CODE_TO_ENTITY[acc.institution_code]||acc.institution_code,listingSymbol,shares:0,invested:0,costBasis:0,realizedPnl:0,start:date||o.operation_date,latestOpNav:null,latestOpDate:null,calculationWarnings:[]};
+  const delta=+o.shares_delta||0,amount=Math.abs(+o.amount||0),opNav=+o.nav||0,fees=Math.max(0,+o.fees||0),expected=Math.abs(delta)*opNav;
+  const inputDiff=amount>0&&expected>0?Math.abs(amount/expected-1)*100:0;if(inputDiff>=VALIDATION_TOLERANCE_PCT)continue;
+  if(delta>0){
+   const acquisitionCost=(amount>0?amount:expected)+fees;g.costBasis+=acquisitionCost;g.shares+=delta;
+  }else if(delta<0){
+   const qty=Math.abs(delta);if(g.shares<=0){g.calculationWarnings.push('Salida sin participaciones previas');continue}
+   const used=Math.min(qty,g.shares),avgCost=g.costBasis/g.shares,removedBasis=avgCost*used,proceeds=Math.max(0,amount-fees);
+   if(o.operation_type!=='transfer_out')g.realizedPnl+=proceeds-removedBasis;
+   g.costBasis=Math.max(0,g.costBasis-removedBasis);g.shares-=used;
+   if(qty>used+1e-8)g.calculationWarnings.push('Salida superior a participaciones disponibles');
+  }
+  g.invested=g.costBasis;
+  if(opNav>0&&(!g.latestOpDate||date>=g.latestOpDate)){g.latestOpNav=opNav;g.latestOpDate=date}
+  if(date&&(!g.start||date<g.start))g.start=date;groups.set(key,g);
  }
- const today=new Date();const m1=new Date(today);m1.setMonth(m1.getMonth()-1);const m3=new Date(today);m3.setMonth(m3.getMonth()-3);const ytd=new Date(Date.UTC(today.getUTCFullYear(),0,1));
- const result=[];
- const listingCountByIsin={};for(const l of Object.values(state.listings||{})){if(!l?.isin)continue;(listingCountByIsin[l.isin]??=new Set()).add(canonicalListingSymbol(l.isin,l.provider_symbol));}
+ const today=new Date(),m1=new Date(today),m3=new Date(today),ytd=new Date(Date.UTC(today.getUTCFullYear(),0,1));m1.setMonth(m1.getMonth()-1);m3.setMonth(m3.getMonth()-3);
+ const result=[],listingCountByIsin={};for(const l of Object.values(state.listings||{})){if(!l?.isin)continue;(listingCountByIsin[l.isin]??=new Set()).add(canonicalListingSymbol(l.isin,l.provider_symbol))}
  for(const g of groups.values()){
-   if(Math.abs(g.shares)<1e-10)continue;const f=fundMap[g.isin]||{};const isEtf=String(f.instrument_type||'').toUpperCase().includes('ETF');const needsMarket=isEtf||(listingCountByIsin[g.isin]?.size||0)>1;
-   if(needsMarket&&!g.listingSymbol){result.push({...g,nav:0,prevNav:0,navDate:null,navStatus:'market_required',m1:null,m3:null,ytd:null});continue}
-   const series=g.listingSymbol?(byListing[g.listingSymbol]||[]):(byIsin[g.isin]||[]);const latest=series.at(-1);const prev=series.at(-2)||latest;const onlineIsCurrent=latest&&(!g.latestOpDate||latest.nav_date>=g.latestOpDate);const nav=onlineIsCurrent?+latest.nav:(g.latestOpNav||(+latest?.nav||0));const prevNav=onlineIsCurrent?(prev?+prev.nav:nav):(+latest?.nav||nav);
-   const m1i=nearestReturnInfo(series,m1),m3i=nearestReturnInfo(series,m3),ytdi=nearestReturnInfo(series,ytd);result.push({...g,nav,prevNav,navDate:onlineIsCurrent?latest?.nav_date:(g.latestOpDate||latest?.nav_date||null),navSource:onlineIsCurrent?(latest?.source||null):'Precio de operación',navFetchedAt:onlineIsCurrent?(latest?.fetched_at||null):null,navStatus:onlineIsCurrent?'online':'provisional',m1:m1i.value,m3:m3i.value,ytd:ytdi.value,m1Info:m1i,m3Info:m3i,ytdInfo:ytdi,historyApproximate:series.some(r=>r.isApproximate)});
+  if(Math.abs(g.shares)<1e-10)continue;
+  const f=fundMap[g.isin]||{},isEtf=String(f.instrument_type||'').toUpperCase().includes('ETF'),needsMarket=isEtf||(listingCountByIsin[g.isin]?.size||0)>1;
+  if(needsMarket&&!g.listingSymbol){result.push({...g,nav:0,prevNav:0,navDate:null,navSource:null,navFetchedAt:null,navStatus:'market_required',m1:null,m3:null,ytd:null,m1Info:{value:null},m3Info:{value:null},ytdInfo:{value:null},historyApproximate:false});continue}
+  const series=g.listingSymbol?(byListing[g.listingSymbol]||[]):(byIsin[g.isin]||[]),latestExact=latestExactRow(series),prevExact=previousExactRow(series,latestExact);
+  const onlineIsCurrent=!!(latestExact&&(!g.latestOpDate||latestExact.nav_date>=g.latestOpDate));
+  const nav=onlineIsCurrent?+latestExact.nav:(g.latestOpNav||0),prevNav=onlineIsCurrent?(prevExact?+prevExact.nav:nav):nav;
+  const navDate=onlineIsCurrent?latestExact.nav_date:(g.latestOpDate||null),navSource=onlineIsCurrent?(latestExact.source||null):'Precio de operación',navFetchedAt=onlineIsCurrent?(latestExact.fetched_at||null):null,navStatus=onlineIsCurrent?'online':'provisional';
+  const endPrice=nav>0?nav:null,endDate=navDate;
+  const m1i=returnBetween(series,m1.toISOString().slice(0,10),endPrice,endDate,14),m3i=returnBetween(series,m3.toISOString().slice(0,10),endPrice,endDate,14),ytdi=returnBetween(series,ytd.toISOString().slice(0,10),endPrice,endDate,14);
+  const priceCurrency=latestExact?.currency||(g.listingSymbol?state.listings?.[g.listingSymbol]?.currency:null)||f.currency||'EUR';
+  const p={...g,invested:g.costBasis,nav,prevNav,navDate,navSource,navFetchedAt,navCurrency:priceCurrency,navStatus,m1:m1i.value,m3:m3i.value,ytd:ytdi.value,m1Info:m1i,m3Info:m3i,ytdInfo:ytdi,historyApproximate:series.some(r=>r.isApproximate)};
+  // Invariante contable central. Se conserva para diagnostico si hubiera cualquier discrepancia.
+  p.currentValue=(+p.shares||0)*(+p.nav||0);p.unrealizedPnl=p.currentValue-(+p.invested||0);p.totalReturn=p.invested>0?p.unrealizedPnl/p.invested*100:null;
+  result.push(p);
  }
  return result;
+}
+
+function mapCalculationOperations(ops,accounts){
+ const accountMap=Object.fromEntries(accounts.map(a=>[a.id,a]));
+ return (ops||[]).map(o=>{const acc=accountMap[o.account_id];return{id:o.id,accountId:o.account_id,type:o.operation_type,operationType:o.operation_type,operationDate:o.operation_date||null,date:o.request_date||o.operation_date||null,executionDate:o.execution_date||null,isin:o.isin,listingSymbol:o.listing_symbol||null,entity:CODE_TO_ENTITY[acc?.institution_code]||acc?.institution_code||'—',amount:+o.amount||0,sharesDelta:o.shares_delta===null?null:+o.shares_delta,nav:o.nav===null?null:+o.nav,fees:+o.fees||0,externalCashflow:+o.external_cashflow||0,status:o.status==='completed'?'done':o.status,transferId:o.transfer_id||null}});
 }
 
 function mapOperations(ops,transfers,accounts){
@@ -257,16 +331,16 @@ async function syncFromCloud(showNotice=false){
      select('operations','select=id,account_id,isin,listing_symbol,operation_type,operation_date,request_date,execution_date,amount,shares_delta,nav,fees,external_cashflow,status,validation_status,reference_nav,reference_nav_date,nav_difference_pct,input_consistency_pct,execution_confirmed,transfer_id,notes,created_at,updated_at&order=operation_date.desc,created_at.desc'),
      select('transfers','select=id,from_account_id,from_isin,to_account_id,to_isin,request_date,settlement_date,out_execution_date,in_execution_date,amount,shares_out,shares_in,nav_out,nav_in,status,validation_status,out_reference_nav,in_reference_nav,out_difference_pct,in_difference_pct,notes,created_at,updated_at&order=request_date.desc,created_at.desc'),
      select('funds','select=isin,name,manager,currency,theme,subtheme,benchmark,active,category,category_source,category_fetched_at,data_provider,provider_symbol,instrument_type,metadata_source,metadata_fetched_at'),
-     select('fund_navs','select=isin,nav_date,nav,currency,source,fetched_at&order=nav_date.asc&limit=20000'),
+     select('fund_navs','select=isin,nav_date,nav,currency,source,fetched_at&order=nav_date.desc&limit=20000'),
      select('instrument_listings','select=provider_symbol,isin,ticker,exchange_code,exchange_name,currency,instrument_type,is_primary,source,fetched_at&order=isin,exchange_name,ticker'),
-     select('listing_prices','select=provider_symbol,price_date,price,currency,source,fetched_at,is_approximate,proxy_symbol,calibration_factor,approximation_method,calibration_date&order=price_date.asc&limit=30000'),
+     select('listing_prices','select=provider_symbol,price_date,price,currency,source,fetched_at,is_approximate,proxy_symbol,calibration_factor,approximation_method,calibration_date&order=price_date.desc&limit=30000'),
      select('profiles','select=display_name&limit=1')
    ]);
    cloudAccounts=accounts||[];state.funds={};state.listings={};
    for(const f of funds||[])state.funds[f.isin]={...f,theme:(f.theme&&f.theme!=='Sin clasificar')?f.theme:(f.category||'Sin clasificar')};
    for(const l of listings||[])state.listings[l.provider_symbol]=l;
    for(const n of navs||[]){const f=state.funds[n.isin];if(!f)continue;if(!f.latest_nav||n.nav_date>f.latest_nav.date)f.latest_nav={date:n.nav_date,nav:+n.nav,currency:n.currency||f.currency||'EUR',source:n.source||'Supabase',fetched_at:n.fetched_at||null}}
-   state.positions=buildPositions(ops||[],accounts||[],funds||[],navs||[],listingPrices||[]);state.operations=mapOperations(ops||[],transfers||[],accounts||[]);
+   state.positions=buildPositions(ops||[],accounts||[],funds||[],navs||[],listingPrices||[]);state.calculationOperations=mapCalculationOperations(ops||[],accounts||[]);state.operations=mapOperations(ops||[],transfers||[],accounts||[]);
    const lastFund=(navs||[]).reduce((m,n)=>!m||n.nav_date>m?n.nav_date:m,null);const lastListing=(listingPrices||[]).reduce((m,n)=>!m||n.price_date>m?n.price_date:m,null);state.lastNavUpdate=[lastFund,lastListing].filter(Boolean).sort().at(-1)||null;
    saveCache();renderAll();
    const name=profile?.[0]?.display_name;if(name){const b=document.querySelector('.brand');if(b)b.textContent=name}
@@ -291,7 +365,7 @@ function renderHome(){
 }
 function renderPositions(){
  const q=document.getElementById('positionSearch').value.trim().toLowerCase();const items=positionsForPeriod().filter(p=>meta(p).name.toLowerCase().includes(q)||p.isin.toLowerCase().includes(q));const groups={};items.forEach(p=>{const key=state.group==='entity'?p.entity:meta(p).theme;(groups[key]??=[]).push(p)});
- document.getElementById('positionsBody').innerHTML=Object.entries(groups).map(([g,ps])=>{const gv=ps.reduce((a,p)=>a+posValue(p),0);return `<section class="group-block"><div class="group-title ${state.group==='entity'?'bank-group-title':''}"><h3>${state.group==='entity'?entityWordmark(g):esc(g)}</h3><span>${eur(gv)}</span></div><div class="position-list">${ps.map(p=>{const m=meta(p),val=posValue(p),gain=val-p.invested,ret=totalReturn(p),pi=periodReturnInfo(p),ec=ENTITY[p.entity]||{fundColor:'#64748b'};const assetLine=state.period==='total'?'':`<div class="position-result ${pi.value===null?'muted':pi.value>=0?'metric-positive':'metric-negative'}">Mi posición ${periodLabel()}: ${returnText(pi)}</div>`;const myLine=state.period==='total'?`<div class="position-result ${ret===null?'muted':ret>=0?'metric-positive':'metric-negative'}">Mi posición (total): ${gain>=0?'+':''}${eur(gain)} · ${pct(ret)}</div>`:`<div class="position-result ${ret===null?'muted':ret>=0?'metric-positive':'metric-negative'}">Total desde compra: ${gain>=0?'+':''}${eur(gain)} · ${pct(ret)}</div>`;return `<article class="position-card" data-pos="${esc(p.id)}" style="background:color-mix(in srgb, ${ec.fundColor} 10%, var(--panel));border-left:4px solid ${ec.fundColor}"><div class="position-top"><div class="position-main"><div class="position-name">${esc(m.name)}</div><div class="position-isin">${esc(p.isin)} · ${esc(p.entity)}${p.listingSymbol&&state.listings?.[p.listingSymbol]?` · ${esc(listingLabel(state.listings[p.listingSymbol]))}`:''} · ${esc(m.theme)}</div></div><div class="position-val">${eur(val)}</div></div>${assetLine}${myLine}<div class="chips">${state.period==='total'?`<span class="chip">1M ${returnText(p.m1Info)}</span><span class="chip">3M ${returnText(p.m3Info)}</span><span class="chip">YTD ${returnText(p.ytdInfo)}</span>`:`<span class="chip">Año ${periodLabel()} ${returnText(pi)}</span>`}</div>${pi.approximate?'<div class="pending-hint">≈ Rentabilidad de la posición aproximada porque el precio de referencia del periodo procede de otro mercado del mismo ISIN.</div>':''}${p.navStatus==='market_required'?'<div class="pending-hint"><strong>Mercado pendiente.</strong> Edita la operación y selecciona la bolsa utilizada por tu banco.</div>':p.navStatus==='provisional'?'<div class="pending-hint">Precio/VL provisional calculado desde la operación. Pendiente de fuente online.</div>':''}</article>`}).join('')}</div></section>`}).join('')||'<div class="notice">No hay posiciones para el periodo seleccionado.</div>';
+ document.getElementById('positionsBody').innerHTML=Object.entries(groups).map(([g,ps])=>{const gv=ps.reduce((a,p)=>a+posValue(p),0);return `<section class="group-block"><div class="group-title ${state.group==='entity'?'bank-group-title':''}"><h3>${state.group==='entity'?entityWordmark(g):esc(g)}</h3><span>${eur(gv)}</span></div><div class="position-list">${ps.map(p=>{const m=meta(p),val=Number.isFinite(+p.currentValue)?+p.currentValue:posValue(p),gain=Number.isFinite(+p.unrealizedPnl)?+p.unrealizedPnl:val-p.invested,ret=Number.isFinite(+p.totalReturn)?+p.totalReturn:totalReturn(p),pi=periodReturnInfo(p),ec=ENTITY[p.entity]||{fundColor:'#64748b'};const assetLine=state.period==='total'?'':`<div class="position-result ${pi.value===null?'muted':pi.value>=0?'metric-positive':'metric-negative'}">Mi posición ${periodLabel()}: ${returnText(pi)}</div>`;const myLine=state.period==='total'?`<div class="position-result ${ret===null?'muted':ret>=0?'metric-positive':'metric-negative'}">Mi posición (total): ${gain>=0?'+':''}${eur(gain)} · ${pct(ret)}</div>`:`<div class="position-result ${ret===null?'muted':ret>=0?'metric-positive':'metric-negative'}">Total desde compra: ${gain>=0?'+':''}${eur(gain)} · ${pct(ret)}</div>`;return `<article class="position-card" data-pos="${esc(p.id)}" style="background:color-mix(in srgb, ${ec.fundColor} 10%, var(--panel));border-left:4px solid ${ec.fundColor}"><div class="position-top"><div class="position-main"><div class="position-name">${esc(m.name)}</div><div class="position-isin">${esc(p.isin)} · ${esc(p.entity)}${p.listingSymbol&&state.listings?.[p.listingSymbol]?` · ${esc(listingLabel(state.listings[p.listingSymbol]))}`:''} · ${esc(m.theme)}</div></div><div class="position-val">${eur(val)}</div></div>${assetLine}${myLine}<div class="chips">${state.period==='total'?`<span class="chip">1M ${returnText(p.m1Info)}</span><span class="chip">3M ${returnText(p.m3Info)}</span><span class="chip">YTD ${returnText(p.ytdInfo)}</span>`:`<span class="chip">Año ${periodLabel()} ${returnText(pi)}</span>`}</div>${pi.approximate?'<div class="pending-hint">≈ Rentabilidad de la posición aproximada porque el precio de referencia del periodo procede de otro mercado del mismo ISIN.</div>':''}${p.navStatus==='market_required'?'<div class="pending-hint"><strong>Mercado pendiente.</strong> Edita la operación y selecciona la bolsa utilizada por tu banco.</div>':p.navStatus==='provisional'?'<div class="pending-hint">Precio/VL provisional calculado desde la operación. Pendiente de fuente online.</div>':''}</article>`}).join('')}</div></section>`}).join('')||'<div class="notice">No hay posiciones para el periodo seleccionado.</div>';
  document.querySelectorAll('.position-card').forEach(x=>x.onclick=()=>openDetail(x.dataset.pos));
 }
 function renderOps(){
@@ -315,7 +389,7 @@ function drawChart(p,range){
  const last=rows.at(-1);ctx.fillStyle=line;ctx.beginPath();ctx.arc(xFor(rows.length-1),yFor(+last.nav),3.7,0,Math.PI*2);ctx.fill();ctx.fillStyle=muted;ctx.font='11px system-ui';ctx.textBaseline='top';ctx.textAlign='left';ctx.fillText(new Date(rows[0].nav_date+'T00:00:00').toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit'}),left,h-bottom+10);ctx.textAlign='right';ctx.fillText(new Date(last.nav_date+'T00:00:00').toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit'}),w-right,h-bottom+10);const ri={value:(values.at(-1)/values[0]-1)*100,approximate:metaInfo.approximate};retEl.textContent=returnText(ri);
 }
 function openDetail(id){
- const p=state.positions.find(x=>x.id===id);if(!p)return;const m=meta(p),val=posValue(p),gain=val-p.invested,ret=p.invested?gain/p.invested*100:null;const yr=assetPeriodReturnInfo(p,String(new Date().getFullYear()));const priceCurrency=state.listings?.[p.listingSymbol]?.currency||m.currency||'EUR';
+ const p=state.positions.find(x=>x.id===id);if(!p)return;const m=meta(p),val=Number.isFinite(+p.currentValue)?+p.currentValue:posValue(p),gain=Number.isFinite(+p.unrealizedPnl)?+p.unrealizedPnl:val-p.invested,ret=Number.isFinite(+p.totalReturn)?+p.totalReturn:(p.invested?gain/p.invested*100:null);const yr=assetPeriodReturnInfo(p,String(new Date().getFullYear()));const priceCurrency=state.listings?.[p.listingSymbol]?.currency||m.currency||'EUR';
  const chartHtml=`<div class="chart-wrap"><div style="display:flex;justify-content:space-between;align-items:end;gap:12px"><div><div class="eyebrow">Evolución del activo</div><strong id="rangeReturn">—</strong></div><div class="muted" id="chartSource" style="font-size:11px;text-align:right">Histórico guardado en Supabase</div></div><canvas id="fundChart"></canvas><div class="rangebar" id="rangebar"><button data-range="M1">1M</button><button data-range="M3">3M</button><button data-range="M6">6M</button><button class="active" data-range="YTD">YTD</button><button data-range="Y1">1A</button><button data-range="MAX">Máx</button></div><div class="muted" id="chartNote" style="font-size:11px;margin-top:8px"></div></div>`;
  document.getElementById('detailContent').innerHTML=`<div class="drawer-head"><div><div class="eyebrow">${esc(p.entity)} · ${esc(m.theme)}</div><div class="drawer-title">${esc(m.name)}</div><div class="muted" style="font-size:12px;margin-top:4px">${esc(p.isin)}${p.listingSymbol&&state.listings?.[p.listingSymbol]?` · ${esc(listingLabel(state.listings[p.listingSymbol]))}`:''}</div></div><button class="close" onclick="closeDetail()">×</button></div><div class="detail-kpis"><div class="kpi"><span>Valor actual</span><strong>${eur(val)}</strong></div><div class="kpi"><span>Mi posición (total)</span><strong class="${ret===null?'':ret>=0?'metric-positive':'metric-negative'}">${pct(ret)}</strong></div><div class="kpi"><span>Participaciones</span><strong>${(+p.shares).toLocaleString('es-ES',{maximumFractionDigits:6})}</strong></div><div class="kpi"><span>Precio / VL</span><strong>${p.nav?priceMoney(p.nav,priceCurrency):'—'}</strong></div></div>${chartHtml}<div class="notice" style="margin-top:12px"><strong>Precio utilizado:</strong> ${p.nav?priceMoney(p.nav,priceCurrency):'—'}${p.navDate?` · ${new Date(p.navDate+'T00:00:00').toLocaleDateString('es-ES')}`:''}${p.navSource?` · ${esc(p.navSource)}`:''}<br><strong>Rentabilidad del activo:</strong> 1M ${returnText(p.m1Info)} · 3M ${returnText(p.m3Info)} · YTD ${returnText(p.ytdInfo)}<br><strong>Activo ${new Date().getFullYear()}:</strong> ${returnText(yr)}<br><strong>Resultado de mi inversión:</strong> ${gain>=0?'+':''}${eur(gain)} · ${pct(ret)}${p.historyApproximate?'<br><strong>≈ Aproximado:</strong> la serie histórica se reconstruye con otra cotización del mismo ISIN y un factor de calibración. El precio actual es el real del mercado seleccionado.':''}${p.navStatus==='market_required'?'<br><strong>Nota:</strong> selecciona el mercado/bolsa de este ETF para valorarlo.':p.navStatus==='provisional'?'<br><strong>Nota:</strong> valoración provisional hasta disponer de precio/VL online.':''}</div>`;
  document.getElementById('detailBackdrop').classList.add('open');document.querySelectorAll('#rangebar button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#rangebar button').forEach(x=>x.classList.remove('active'));b.classList.add('active');drawChart(p,b.dataset.range)});setTimeout(()=>drawChart(p,'YTD'),30)

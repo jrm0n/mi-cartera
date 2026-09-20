@@ -1,3 +1,13 @@
+v0.4.9 - 2026-09-20
+- Auditoria completa del motor de calculo.
+- El valor actual usa exclusivamente el ultimo precio/VL exacto del mercado seleccionado; un historico proxy nunca puede valorar la posicion actual.
+- Valor actual = participaciones x precio/VL exacto.
+- Coste vivo recalculado por coste medio de las participaciones abiertas; ventas reducen el coste vivo por coste medio.
+- Rentabilidad total = (valor actual - coste vivo) / coste vivo.
+- Rentabilidades anuales personales mantienen separados flujos del inversor y evolucion del activo.
+- Grafico y rentabilidades del activo terminan siempre en el mismo precio exacto usado para valorar la posicion.
+- Carga de historicos ordenada desde los datos mas recientes para evitar perder precios actuales al alcanzar limites de consulta.
+
 v0.4.8 - 2026-09-20
 - El selector anual de Resumen y Posiciones calcula ahora la rentabilidad de la posición del usuario, no el YTD del activo desde 1 de enero.
 - Si la posición nace dentro del año, el periodo comienza en la compra/posición inicial; con una única compra en el año, Año y Total coinciden.
