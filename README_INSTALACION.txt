@@ -1,4 +1,4 @@
-v0.4.1 - Integridad de operaciones y rentabilidad personal
+v0.4.2 - Arranque actualizado y cierre de mercado
 
 Cambios:
 - Valida importe, participaciones y precio/VL con tolerancia del 0,1 %.

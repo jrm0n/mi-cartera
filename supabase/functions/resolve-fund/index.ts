@@ -102,7 +102,7 @@ async function fetchVdos(isin: string) {
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.0; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.2; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
@@ -124,7 +124,7 @@ async function fetchFinect(isin: string, name: string) {
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.0; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.2; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
@@ -181,7 +181,7 @@ async function fetchTradegate(isin: string) {
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.0; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.2; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
@@ -336,7 +336,8 @@ Deno.serve(async (req: Request) => {
     if(!Array.isArray(listings)) listings=[];
 
     let searchResults:any[]=[];
-    const needSearch = forceMetadata || !existing || !listings.some(l=>l.source === "EODHD Search API") || !existing?.name || existing?.name===isin;
+    const wantsTradegateRefresh = refreshQuote && String(requestedListingSymbol||"").startsWith("TRADEGATE:");
+    const needSearch = forceMetadata || wantsTradegateRefresh || !existing || !listings.some(l=>l.source === "EODHD Search API") || !existing?.name || existing?.name===isin;
     if(needSearch){
       const searchUrl=new URL(`https://eodhd.com/api/search/${encodeURIComponent(isin)}`);
       searchUrl.searchParams.set("api_token",eodhdToken); searchUrl.searchParams.set("fmt","json"); searchUrl.searchParams.set("limit","50");
@@ -364,7 +365,17 @@ Deno.serve(async (req: Request) => {
         const row={provider_symbol:tradegate.providerSymbol,isin,ticker:tradegate.ticker,exchange_code:tradegate.exchangeCode,exchange_name:tradegate.exchangeName,currency:tradegate.currency,instrument_type:tradegate.instrumentType||instrumentType||"ETF",is_primary:false,source:"Tradegate Exchange",fetched_at:nowIso};
         await db(`instrument_listings?on_conflict=provider_symbol`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(row)});
         listings=[...listings.filter((l:any)=>l.provider_symbol!==row.provider_symbol),row];
-        if(tradegate.last!=null&&tradegate.priceDate) await db(`listing_prices?on_conflict=provider_symbol,price_date`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({provider_symbol:row.provider_symbol,price_date:tradegate.priceDate,price:tradegate.last,currency:tradegate.currency,source:"Tradegate Exchange",fetched_at:nowIso,is_approximate:false,proxy_symbol:null,calibration_factor:null,approximation_method:null,calibration_date:null})});
+        let valuationPrice=tradegate.last, valuationDate=tradegate.priceDate, valuationSource="Tradegate Exchange · Last";
+        const eodTg=searchResults.filter((r:any)=>{
+          const l={provider_symbol:`${r.Code}.${r.Exchange}`,exchange_code:String(r.Exchange||""),exchange_name:exchangeDisplayName(String(r.Exchange||""))};
+          return isTradegateListing(l)&&r?.previousClose!=null&&r?.previousCloseDate&&String(r?.Currency||"").toUpperCase()===String(tradegate.currency||"").toUpperCase();
+        }).sort((a:any,b:any)=>String(b.previousCloseDate).localeCompare(String(a.previousCloseDate)))[0]??null;
+        if(eodTg){
+          const eodPrice=Number(eodTg.previousClose), direct=Number(tradegate.last), sameOrNewer=!tradegate.priceDate||String(eodTg.previousCloseDate)>=String(tradegate.priceDate);
+          const plausible=!Number.isFinite(direct)||direct<=0||Math.abs(eodPrice/direct-1)<=0.05;
+          if(Number.isFinite(eodPrice)&&eodPrice>0&&sameOrNewer&&plausible){valuationPrice=eodPrice;valuationDate=String(eodTg.previousCloseDate);valuationSource="EODHD previous close · Tradegate";}
+        }
+        if(valuationPrice!=null&&valuationDate) await db(`listing_prices?on_conflict=provider_symbol,price_date`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({provider_symbol:row.provider_symbol,price_date:valuationDate,price:valuationPrice,currency:tradegate.currency,source:valuationSource,fetched_at:nowIso,is_approximate:false,proxy_symbol:null,calibration_factor:null,approximation_method:null,calibration_date:null})});
       }
     }
 

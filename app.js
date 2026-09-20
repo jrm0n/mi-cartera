@@ -1,10 +1,10 @@
-const APP_VERSION='0.4.1';
+const APP_VERSION='0.4.2';
 const VALIDATION_TOLERANCE_PCT=0.1;
 const DATA_SCHEMA_VERSION=6;
 const CACHE_KEY='mi_cartera_cloud_cache_v1';
 const SESSION_KEY='mi_cartera_supabase_session_v1';
 const THEME_KEY='mi_cartera_theme';
-const AUTO_REFRESH_KEY='mi_cartera_last_auto_refresh_v1';
+const AUTO_REFRESH_KEY='mi_cartera_last_auto_refresh_v2';
 const cfg=window.MI_CARTERA_CONFIG?.cloud||{};
 const SUPABASE_URL=(cfg.url||'').replace(/\/$/,'');
 const SUPABASE_KEY=cfg.publishableKey||cfg.anonKey||'';
@@ -221,11 +221,11 @@ async function syncFromCloud(showNotice=false){
      select('listing_prices','select=provider_symbol,price_date,price,currency,source,fetched_at,is_approximate,proxy_symbol,calibration_factor,approximation_method,calibration_date&order=price_date.asc&limit=30000'),
      select('profiles','select=display_name&limit=1')
    ]);
-   cloudAccounts=accounts||[];const oldTotal=total();state.funds={};state.listings={};
+   cloudAccounts=accounts||[];state.funds={};state.listings={};
    for(const f of funds||[])state.funds[f.isin]={...f,theme:(f.theme&&f.theme!=='Sin clasificar')?f.theme:(f.category||'Sin clasificar')};
    for(const l of listings||[])state.listings[l.provider_symbol]=l;
    for(const n of navs||[]){const f=state.funds[n.isin];if(!f)continue;if(!f.latest_nav||n.nav_date>f.latest_nav.date)f.latest_nav={date:n.nav_date,nav:+n.nav,currency:n.currency||f.currency||'EUR',source:n.source||'Supabase',fetched_at:n.fetched_at||null}}
-   state.positions=buildPositions(ops||[],accounts||[],funds||[],navs||[],listingPrices||[]);state.operations=mapOperations(ops||[],transfers||[],accounts||[]);state.lastValue=oldTotal||state.lastValue;
+   state.positions=buildPositions(ops||[],accounts||[],funds||[],navs||[],listingPrices||[]);state.operations=mapOperations(ops||[],transfers||[],accounts||[]);
    const lastFund=(navs||[]).reduce((m,n)=>!m||n.nav_date>m?n.nav_date:m,null);const lastListing=(listingPrices||[]).reduce((m,n)=>!m||n.price_date>m?n.price_date:m,null);state.lastNavUpdate=[lastFund,lastListing].filter(Boolean).sort().at(-1)||null;
    saveCache();renderAll();
    const name=profile?.[0]?.display_name;if(name){const b=document.querySelector('.brand');if(b)b.textContent=name}
@@ -405,9 +405,11 @@ async function refreshAllMarketData(showNotice=true){
  const unique=[];const seen=new Set();for(const p of state.positions){const key=p.isin+'|'+(p.listingSymbol||'');if(seen.has(key))continue;seen.add(key);unique.push(p)}
  const limited=unique.slice(0,18);let ok=0,failed=0;setCloudStatus(`Actualizando mercados… 0/${limited.length}`);
  for(let i=0;i<limited.length;i++){const p=limited[i];try{await resolveFund(p.isin,true,false,p.listingSymbol||null,true);ok++}catch(err){console.warn('Refresh',p.isin,err);failed++}setCloudStatus(`Actualizando mercados… ${i+1}/${limited.length}`)}
- await syncFromCloud(false);localStorage.setItem(AUTO_REFRESH_KEY,new Date().toISOString().slice(0,10));if(showNotice)alert(`Actualización terminada: ${ok} correctas${failed?`, ${failed} con error`:''}${unique.length>18?`. Se han limitado a 18 instrumentos para respetar el plan gratuito de datos.`:''}.`);return{ok,failed}
+ await syncFromCloud(false);localStorage.setItem(AUTO_REFRESH_KEY,new Date().toISOString());if(showNotice)alert(`Actualización terminada: ${ok} correctas${failed?`, ${failed} con error`:''}${unique.length>18?`. Se han limitado a 18 instrumentos para respetar el plan gratuito de datos.`:''}.`);return{ok,failed}
 }
 async function refreshPortfolio(){state.lastValue=total();saveCache();await refreshAllMarketData(true)}
+function startupRefreshDue(){const raw=localStorage.getItem(AUTO_REFRESH_KEY);if(!raw)return true;const t=Date.parse(raw);if(!Number.isFinite(t))return true;return Date.now()-t>=12*3600*1000}
+async function refreshOnStartup(){if(!state.positions.length||!startupRefreshDue())return;state.lastValue=total();saveCache();const el=document.getElementById('sinceUpdate');if(el)el.innerHTML='<span class="muted">Actualizando…</span>';setCloudStatus('Actualizando mercados…');try{await refreshAllMarketData(false)}catch(err){console.warn('Auto refresh',err);setCloudStatus('Sincronizado con Supabase · actualización pendiente','warn')}}
 function exportBackup(){const payload={app:'Mi Cartera',appVersion:APP_VERSION,schemaVersion:DATA_SCHEMA_VERSION,exportedAt:new Date().toISOString(),cloudProject:SUPABASE_URL,state};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`mi-cartera-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 window.exportBackup=exportBackup;
 
@@ -415,7 +417,7 @@ function toggleTheme(){const root=document.documentElement;root.dataset.theme=ro
 
 async function init(){
  if(!SUPABASE_URL||!SUPABASE_KEY){showAuth();setAuthMessage('Configuración de Supabase incompleta.',true);return}
- loadCache();renderAll();const ok=await ensureSession();if(!ok){showAuth();return}showApp();await syncFromCloud();const today=new Date().toISOString().slice(0,10);if(localStorage.getItem(AUTO_REFRESH_KEY)!==today&&state.positions.length){refreshAllMarketData(false).catch(err=>console.warn('Auto refresh',err))}
+ loadCache();state.lastValue=null;renderAll();const ok=await ensureSession();if(!ok){showAuth();return}showApp();await syncFromCloud();await refreshOnStartup();
 }
 
 document.getElementById('loginForm')?.addEventListener('submit',async e=>{e.preventDefault();const email=document.getElementById('loginEmail').value.trim(),password=document.getElementById('loginPassword').value;const btn=document.getElementById('loginBtn');btn.disabled=true;setAuthMessage('Conectando…');try{await signIn(email,password);showApp();setAuthMessage('');await syncFromCloud()}catch(err){setAuthMessage(err.message,true)}finally{btn.disabled=false}});

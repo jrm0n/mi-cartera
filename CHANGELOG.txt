@@ -1,3 +1,10 @@
+v0.4.2 Arranque actualizado y cierre de mercado - 2026-09-20
+- La actualización automática de mercado se espera durante el arranque; ya no queda ejecutándose en segundo plano mientras se muestran datos antiguos.
+- El bloque Desde última actualización se reinicia de forma segura al abrir la app y toma como base la cartera inmediatamente anterior al refresco.
+- La actualización automática se repite cuando han pasado 12 horas desde el último refresco en ese dispositivo.
+- Para Tradegate se prioriza el previous close de EODHD del mismo listing cuando está disponible y es coherente; el Last directo de Tradegate queda como respaldo.
+- La fuente exacta del precio sigue guardándose y mostrándose en el detalle.
+
 v0.4.1 Integridad de operaciones - 2026-09-20
 - Control de coherencia importe/participaciones/precio con umbral 0,1 %.
 - Operaciones legacy incoherentes pasan a pendiente sin borrarse.
