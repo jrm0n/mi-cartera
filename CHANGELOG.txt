@@ -1,3 +1,11 @@
+v0.4.1 Integridad de operaciones - 2026-09-20
+- Control de coherencia importe/participaciones/precio con umbral 0,1 %.
+- Operaciones legacy incoherentes pasan a pendiente sin borrarse.
+- Recalculo asistido de importe o precio de compra.
+- Opción de confirmar datos ejecutados por el banco.
+- La rentabilidad personal no se calcula con costes de adquisición incoherentes.
+- Se muestra la fuente y fecha del precio de mercado usado en la valoración.
+
 v0.4.0 Histórico proxy y gráfico nativo - 2026-09-20
 - Nuevo histórico aproximado por mercado proxy del mismo ISIN, con factor de calibración.
 - Proxy preferente de misma divisa; soporte FX si fuera necesario.

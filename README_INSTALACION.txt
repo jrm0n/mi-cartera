@@ -1,3 +1,16 @@
+v0.4.1 - Integridad de operaciones y rentabilidad personal
+
+Cambios:
+- Valida importe, participaciones y precio/VL con tolerancia del 0,1 %.
+- Las operaciones incoherentes quedan pendientes y dejan de generar rentabilidades falsas.
+- Permite recalcular importe o precio desde el editor de operaciones.
+- Permite marcar datos de ejecución confirmados por el banco.
+- El detalle muestra la fecha y fuente exacta del precio utilizado.
+- No sustituye silenciosamente el precio del mercado seleccionado por el de otra fuente.
+
+Migración nueva:
+- 012_operation_integrity_v0.4.1.sql
+
 v0.4.0 - Histórico proxy y gráfico nativo
 
 - Elimina los gráficos-imagen de Tradegate.
