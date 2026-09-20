@@ -1,4 +1,4 @@
-MI CARTERA v0.4.9 - CRITERIOS DE CALCULO
+MI CARTERA v0.5.0 - CRITERIOS DE CALCULO
 
 1. Posicion actual
    Participaciones actuales = suma de shares_delta de operaciones completadas de la misma cuenta, ISIN y cotizacion.
@@ -23,6 +23,8 @@ MI CARTERA v0.4.9 - CRITERIOS DE CALCULO
 
 6. Rentabilidad personal de un ano
    Si la posicion ya existia al inicio del ano: capital inicial = participaciones iniciales x precio de referencia al inicio del ano.
+   Si existe una Base 2026 declarada por el usuario, esa cantidad sustituye al valor de apertura calculado para 2026.
+   La posicion inicial asociada a esa base reconstruye las participaciones en la fecha conocida, pero no se cuenta como aportacion de 2026.
    Se suman compras/aportaciones del ano y se descuentan ventas/reembolsos como cobros en el resultado.
    Si la posicion nace dentro del ano, el periodo comienza con las compras de ese ano.
    Por eso, si toda la posicion se compro en 2026 y no hubo ventas, rentabilidad 2026 y Total coinciden.
@@ -41,3 +43,9 @@ MI CARTERA v0.4.9 - CRITERIOS DE CALCULO
 9. Datos aproximados
    Nunca validan operaciones ni sustituyen el precio actual del mercado seleccionado.
    Solo se usan para historicos/rentabilidades del activo o precios de referencia historicos, marcados como aproximados.
+
+10. Posicion con Base 2026
+   La base es el valor total de la inversion a 01/01/2026 segun los datos aportados por el usuario; no es el VL de una participacion.
+   Rentabilidad 2026 = (valor final + salidas - base - aportaciones posteriores) / (base + aportaciones posteriores).
+   Si el coste anterior al punto de seguimiento es desconocido, la rentabilidad total historica se muestra como N/D.
+   La base se guarda como metadato estructurado en notes y no modifica el esquema de datos.

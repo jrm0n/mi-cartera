@@ -1,3 +1,11 @@
+v0.5.0 - 2026-09-20
+- Nueva opción "Base 2026" en el alta y edición de operaciones.
+- Permite registrar una posición cuyo histórico anterior es desconocido indicando el valor de referencia a 01/01/2026.
+- La operación conserva fecha, importe, participaciones y VL/precio como una posición inicial, pero su entrada no se cuenta como una aportación nueva en la rentabilidad de 2026.
+- Rentabilidad 2026 = (valor final + salidas - base 01/01/2026 - aportaciones posteriores) / (base 01/01/2026 + aportaciones posteriores).
+- La rentabilidad total histórica se muestra como N/D cuando no se conoce el coste anterior al punto de seguimiento.
+- La base se conserva en el campo notes de la operación; no requiere una migración nueva de Supabase y mantiene dataSchemaVersion 8.
+
 v0.4.9 - 2026-09-20
 - Auditoria completa del motor de calculo.
 - El valor actual usa exclusivamente el ultimo precio/VL exacto del mercado seleccionado; un historico proxy nunca puede valorar la posicion actual.

@@ -1,3 +1,9 @@
+v0.5.0 - Posiciones con base de referencia 2026
+
+No requiere SQL nuevo. La opción "Base 2026" guarda el valor de referencia a 01/01/2026 en la propia operación y permite calcular la rentabilidad anual aunque se desconozca el histórico anterior.
+
+La rentabilidad total histórica queda como N/D para estas posiciones, porque la base anual no sustituye al coste histórico/fiscal desconocido.
+
 v0.4.9 - Rentabilidad anual de la posición
 
 No requiere SQL nuevo. Actualizar resolve-fund en Supabase y después publicar el parche en GitHub.
