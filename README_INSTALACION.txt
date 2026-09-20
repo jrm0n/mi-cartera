@@ -1,3 +1,11 @@
+v0.3.8 - Corrección canónica de Tradegate
+
+1) Ejecutar backend/009_tradegate_canonical_v0.3.8.sql en Supabase SQL Editor.
+2) Sustituir y desplegar supabase/functions/resolve-fund/index.ts.
+3) Subir el parche v0.3.8 a GitHub Pages.
+4) Las operaciones que apuntaban a un alias EODHD de Tradegate se migran al listado canónico TRADEGATE:<ISIN>.
+5) La app no volverá a valorar un ETF de Tradegate con una cotización de otro listado o con el VL global por ISIN.
+
 v0.3.7 - Cotizaciones ETF por mercado
 
 IMPORTANTE: antes de subir esta versión a GitHub:

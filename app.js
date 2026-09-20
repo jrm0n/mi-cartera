@@ -1,6 +1,6 @@
-const APP_VERSION='0.3.7';
+const APP_VERSION='0.3.8';
 const VALIDATION_TOLERANCE_PCT=0.1;
-const DATA_SCHEMA_VERSION=4;
+const DATA_SCHEMA_VERSION=5;
 const CACHE_KEY='mi_cartera_cloud_cache_v1';
 const SESSION_KEY='mi_cartera_supabase_session_v1';
 const THEME_KEY='mi_cartera_theme';
@@ -126,6 +126,27 @@ function validIsin(isin){
  const expanded=[...isin].map(c=>/[A-Z]/.test(c)?String(c.charCodeAt(0)-55):c).join('');let sum=0,dbl=false;
  for(let i=expanded.length-1;i>=0;i--){let n=+expanded[i];if(dbl){n*=2;if(n>9)n-=9}sum+=n;dbl=!dbl}return sum%10===0;
 }
+function isTradegateListing(listing){
+ const code=String(listing?.exchange_code||'').toUpperCase();
+ const name=String(listing?.exchange_name||'').toLowerCase();
+ const sym=String(listing?.provider_symbol||'');
+ return sym.startsWith('TRADEGATE:')||['TDG','TGAT','TGATE','TRADEGATE'].includes(code)||name.includes('tradegate');
+}
+function canonicalListingSymbol(isin,symbol){
+ if(!symbol)return null;
+ const exact=`TRADEGATE:${isin}`;
+ const listing=state.listings?.[symbol];
+ if((listing&&isTradegateListing(listing))||String(symbol).startsWith('TRADEGATE:')){
+   if(state.listings?.[exact])return exact;
+ }
+ return symbol;
+}
+function normalizeListingChoices(isin,list){
+ const arr=[...(list||[])];
+ const exact=arr.find(l=>String(l.provider_symbol)===`TRADEGATE:${isin}`);
+ if(!exact)return arr;
+ return arr.filter(l=>!isTradegateListing(l)||l.provider_symbol===exact.provider_symbol);
+}
 async function resolveFund(isin,includeHistory=false,forceMetadata=false,listingSymbol=null){
  isin=String(isin||'').trim().toUpperCase();if(!validIsin(isin))throw new Error('ISIN no válido');
  const result=await edge('resolve-fund',{isin,include_history:!!includeHistory,force_metadata:!!forceMetadata,listing_symbol:listingSymbol||null});
@@ -151,16 +172,17 @@ function buildPositions(operations,accounts,funds,navRows,listingPriceRows=[]){
  const completed=operations.filter(o=>o.status==='completed'&&o.shares_delta!==null);
  completed.sort((a,b)=>(a.operation_date||'').localeCompare(b.operation_date||'')||(a.created_at||'').localeCompare(b.created_at||''));
  for(const o of completed){
-   const acc=accountMap[o.account_id];if(!acc)continue;const listingSymbol=o.listing_symbol||null;const key=o.account_id+'|'+o.isin+'|'+(listingSymbol||'');let g=groups.get(key);if(!g)g={id:key,accountId:o.account_id,isin:o.isin,entity:CODE_TO_ENTITY[acc.institution_code]||acc.institution_code,listingSymbol,shares:0,invested:0,start:o.operation_date,latestOpNav:null,latestOpDate:null};
+   const acc=accountMap[o.account_id];if(!acc)continue;const listingSymbol=canonicalListingSymbol(o.isin,o.listing_symbol||null);const key=o.account_id+'|'+o.isin+'|'+(listingSymbol||'');let g=groups.get(key);if(!g)g={id:key,accountId:o.account_id,isin:o.isin,entity:CODE_TO_ENTITY[acc.institution_code]||acc.institution_code,listingSymbol,shares:0,invested:0,start:o.operation_date,latestOpNav:null,latestOpDate:null};
    const delta=+o.shares_delta||0;const amount=+o.amount||0;
    if(delta>0){g.invested+=amount>0?amount:Math.abs(delta)*(+o.nav||0)}else if(delta<0&&g.shares>0){const ratio=Math.min(1,Math.abs(delta)/g.shares);g.invested=Math.max(0,g.invested*(1-ratio))}
    g.shares+=delta;if(+o.nav>0&&(!g.latestOpDate||o.operation_date>=g.latestOpDate)){g.latestOpNav=+o.nav;g.latestOpDate=o.operation_date}if(o.operation_date<g.start)g.start=o.operation_date;groups.set(key,g);
  }
  const today=new Date();const m1=new Date(today);m1.setMonth(m1.getMonth()-1);const m3=new Date(today);m3.setMonth(m3.getMonth()-3);const ytd=new Date(Date.UTC(today.getUTCFullYear(),0,1));
  const result=[];
+ const listingCountByIsin={};for(const l of Object.values(state.listings||{})){if(!l?.isin)continue;(listingCountByIsin[l.isin]??=new Set()).add(canonicalListingSymbol(l.isin,l.provider_symbol));}
  for(const g of groups.values()){
-   if(Math.abs(g.shares)<1e-10)continue;const f=fundMap[g.isin]||{};const isEtf=String(f.instrument_type||'').toUpperCase().includes('ETF');
-   if(isEtf&&!g.listingSymbol){result.push({...g,nav:0,prevNav:0,navDate:null,navStatus:'market_required',m1:null,m3:null,ytd:null});continue}
+   if(Math.abs(g.shares)<1e-10)continue;const f=fundMap[g.isin]||{};const isEtf=String(f.instrument_type||'').toUpperCase().includes('ETF');const needsMarket=isEtf||(listingCountByIsin[g.isin]?.size||0)>1;
+   if(needsMarket&&!g.listingSymbol){result.push({...g,nav:0,prevNav:0,navDate:null,navStatus:'market_required',m1:null,m3:null,ytd:null});continue}
    const series=g.listingSymbol?(byListing[g.listingSymbol]||[]):(byIsin[g.isin]||[]);const latest=series.at(-1);const prev=series.at(-2)||latest;const onlineIsCurrent=latest&&(!g.latestOpDate||latest.nav_date>=g.latestOpDate);const nav=onlineIsCurrent?+latest.nav:(g.latestOpNav||(+latest?.nav||0));const prevNav=onlineIsCurrent?(prev?+prev.nav:nav):(+latest?.nav||nav);
    result.push({...g,nav,prevNav,navDate:onlineIsCurrent?latest?.nav_date:(g.latestOpDate||latest?.nav_date||null),navStatus:onlineIsCurrent?'online':'provisional',m1:nearestReturn(series,m1),m3:nearestReturn(series,m3),ytd:nearestReturn(series,ytd)});
  }
@@ -258,12 +280,12 @@ function renderOpForm(type){
 }
 let isinLookupTimer=null,isinLookupSeq=0,preferredListingSymbol=null;
 function listingLabel(l){return `${l.exchange_name||l.exchange_code||'Mercado'} · ${l.ticker||''}${l.currency?` · ${l.currency}`:''}`}
-function selectedListingSymbol(){return document.getElementById('fListing')?.value||preferredListingSymbol||null}
+function selectedListingSymbol(){const isin=document.getElementById('fIsin')?.value.trim().toUpperCase()||'';return canonicalListingSymbol(isin,document.getElementById('fListing')?.value||preferredListingSymbol||null)}
 function renderListingSelector(result){
  const field=document.getElementById('listingField'),sel=document.getElementById('fListing');if(!field||!sel)return;
- const list=(result?.listings||[]);if(!(result?.requires_listing||list.length>1)){field.style.display='none';sel.innerHTML='';return}
+ const isin=document.getElementById('fIsin')?.value.trim().toUpperCase()||result?.isin||'';const list=normalizeListingChoices(isin,result?.listings||[]);if(!(result?.requires_listing||list.length>1)){field.style.display='none';sel.innerHTML='';return}
  field.style.display='block';sel.innerHTML=`<option value="">Selecciona mercado / bolsa</option>`+list.map(l=>`<option value="${esc(l.provider_symbol)}">${esc(listingLabel(l))}</option>`).join('');
- const wanted=result?.selected_listing?.provider_symbol||preferredListingSymbol||'';if(wanted)sel.value=wanted;
+ const wanted=canonicalListingSymbol(isin,result?.selected_listing?.provider_symbol||preferredListingSymbol||'');if(wanted)sel.value=wanted;
 }
 function paintResolvedFund(isin,result=null){
  const m=state.funds?.[isin]||result?.fund;const latest=result?.latest_nav||(!result?.requires_listing?m?.latest_nav:null)||null;const info=document.getElementById('isinInfo');const n=document.getElementById('fFundName'),c=document.getElementById('fCategory'),g=document.getElementById('fManager'),b=document.getElementById('fBenchmark'),v=document.getElementById('fLatestNav'),d=document.getElementById('fLatestNavDate'),src=document.getElementById('fNavSource');if(!m)return;
@@ -281,14 +303,14 @@ function lookupIsin(v,force=false,resetListing=false){
 }
 window.lookupIsin=lookupIsin;
 async function selectListing(symbol){
- preferredListingSymbol=symbol||null;const isin=document.getElementById('fIsin')?.value.trim().toUpperCase();if(!isin||!symbol)return;const info=document.getElementById('isinInfo');if(info)info.textContent='Actualizando la cotización del mercado seleccionado…';try{const r=await resolveFund(isin,false,false,symbol);paintResolvedFund(isin,r)}catch(err){if(info)info.innerHTML=`No se pudo cargar esa cotización: ${esc(err.message)}`}
+ const isin=document.getElementById('fIsin')?.value.trim().toUpperCase();symbol=canonicalListingSymbol(isin,symbol||null);preferredListingSymbol=symbol||null;if(!isin||!symbol)return;const info=document.getElementById('isinInfo');if(info)info.textContent='Actualizando la cotización del mercado seleccionado…';try{const r=await resolveFund(isin,false,false,symbol);paintResolvedFund(isin,r)}catch(err){if(info)info.innerHTML=`No se pudo cargar esa cotización: ${esc(err.message)}`}
 }
 window.selectListing=selectListing;
 
 async function saveBasic(type){
  try{
   const isin=document.getElementById('fIsin').value.trim().toUpperCase(),entity=document.getElementById('fEntity').value,requestDate=document.getElementById('fDate').value;if(!isin||!requestDate)throw new Error('Introduce ISIN y fecha de orden.');if(!validIsin(isin))throw new Error('El ISIN no es válido.');const {amount,shares,nav}=readOperationTriplet();
-  let initial=await resolveFund(isin,false,false,selectedListingSymbol());let listingSymbol=selectedListingSymbol();if(initial?.requires_listing&&!listingSymbol)throw new Error('Este ETF cotiza en varios mercados. Selecciona la bolsa/mercado que utiliza tu banco.');if(listingSymbol){initial=await resolveFund(isin,true,false,listingSymbol)}else{initial=await resolveFund(isin,true,false,null)}
+  let initial=await resolveFund(isin,false,false,selectedListingSymbol());let listingSymbol=selectedListingSymbol();if(initial?.requires_listing&&!listingSymbol)throw new Error('Este ETF cotiza en varios mercados. Selecciona la bolsa/mercado que utiliza tu banco.');if(listingSymbol){initial=await resolveFund(isin,true,false,listingSymbol);listingSymbol=initial?.selected_listing?.provider_symbol||canonicalListingSymbol(isin,listingSymbol);preferredListingSymbol=listingSymbol}else{initial=await resolveFund(isin,true,false,null)}
   const account=await ensureAccount(entity);const typeMap={'Posición inicial':'initial','Compra':'buy','Aportación':'contribution','Reembolso':'redemption','Venta':'sale'};const isOut=['Reembolso','Venta'].includes(type);const delta=isOut?-Math.abs(shares):Math.abs(shares);
   let validation={status:'not_checked',match:null,differencePct:null};if(type!=='Posición inicial')validation=await validateNavAgainstHistory(isin,requestDate,nav,14,listingSymbol);const pending=type!=='Posición inicial'&&validation.status!=='validated';const executionDate=validation.status==='validated'?validation.match.date:(pending?null:requestDate);const operationDate=executionDate||requestDate;
   await insert('operations',{account_id:account.id,isin,listing_symbol:listingSymbol,operation_type:typeMap[type],operation_date:operationDate,request_date:requestDate,execution_date:executionDate,amount,shares_delta:delta,nav,fees:0,external_cashflow:isOut?-amount:amount,status:pending?'pending':'completed',validation_status:validation.status,reference_nav:validation.match?.nav??null,reference_nav_date:validation.match?.date??null,nav_difference_pct:validation.differencePct??null});
@@ -319,7 +341,7 @@ window.openBasicOperation=openBasicOperation;
 async function updateBasicOperation(id){
  try{
   const o=state.operations.find(x=>x.id===id&&x.type!=='Traspaso');if(!o)throw new Error('Operación no encontrada.');const type=document.getElementById('fEditType').value,entity=document.getElementById('fEntity').value,isin=document.getElementById('fIsin').value.trim().toUpperCase(),requestDate=document.getElementById('fDate').value;if(!isin||!requestDate)throw new Error('Introduce ISIN y fecha de orden.');if(!validIsin(isin))throw new Error('El ISIN no es válido.');const {amount,shares,nav}=readOperationTriplet();
-  let initial=await resolveFund(isin,false,true,selectedListingSymbol());let listingSymbol=selectedListingSymbol();if(initial?.requires_listing&&!listingSymbol)throw new Error('Selecciona la bolsa/mercado de este ETF.');if(listingSymbol)await resolveFund(isin,true,false,listingSymbol);else await resolveFund(isin,true,false,null);
+  let initial=await resolveFund(isin,false,true,selectedListingSymbol());let listingSymbol=selectedListingSymbol();if(initial?.requires_listing&&!listingSymbol)throw new Error('Selecciona la bolsa/mercado de este ETF.');if(listingSymbol){initial=await resolveFund(isin,true,false,listingSymbol);listingSymbol=initial?.selected_listing?.provider_symbol||canonicalListingSymbol(isin,listingSymbol);preferredListingSymbol=listingSymbol}else await resolveFund(isin,true,false,null);
   const account=await ensureAccount(entity);const typeMap={'Posición inicial':'initial','Compra':'buy','Aportación':'contribution','Reembolso':'redemption','Venta':'sale'};const isOut=['Reembolso','Venta'].includes(type);const delta=isOut?-Math.abs(shares):Math.abs(shares);let validation={status:'not_checked',match:null,differencePct:null};if(type!=='Posición inicial')validation=await validateNavAgainstHistory(isin,requestDate,nav,14,listingSymbol);const pending=type!=='Posición inicial'&&validation.status!=='validated';const executionDate=validation.status==='validated'?validation.match.date:(pending?null:requestDate);const operationDate=executionDate||requestDate;
   await patch('operations',`id=eq.${encodeURIComponent(id)}`,{account_id:account.id,isin,listing_symbol:listingSymbol,operation_type:typeMap[type],operation_date:operationDate,request_date:requestDate,execution_date:executionDate,amount,shares_delta:delta,nav,external_cashflow:isOut?-amount:amount,status:pending?'pending':'completed',validation_status:validation.status,reference_nav:validation.match?.nav??null,reference_nav_date:validation.match?.date??null,nav_difference_pct:validation.differencePct??null});closeOp();await syncFromCloud();navigate('operations');if(pending)alert(validation.differencePct==null?'La operación sigue pendiente porque no hay histórico exacto de la bolsa seleccionada para validarla.':`La operación sigue pendiente: diferencia ${validation.differencePct.toFixed(3)} % (umbral 0,1 %).`)
  }catch(err){alert('No se pudo actualizar la operación: '+err.message)}

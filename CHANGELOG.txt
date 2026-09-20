@@ -1,3 +1,11 @@
+v0.3.8 Corrección canónica de Tradegate - 2026-09-20
+- Tradegate pasa a tener un único listado canónico TRADEGATE:<ISIN>.
+- Se eliminan del selector los alias duplicados de Tradegate devueltos por EODHD cuando existe la cotización oficial directa.
+- Al guardar una operación se persiste el listing devuelto realmente por resolve-fund, evitando que el resumen vuelva al listado equivocado.
+- Las posiciones con múltiples mercados y sin mercado seleccionado ya no usan un VL global por ISIN: quedan como mercado pendiente.
+- Se migran operaciones antiguas que apuntaban a alias Tradegate hacia el listado canónico.
+- Esquema de datos actualizado a versión 5.
+
 v0.3.7 Cotizaciones ETF por mercado - 2026-09-20
 - El ISIN de un ETF ya no determina por sí solo el precio usado para valorar la posición.
 - Alta y edición de operaciones muestran un desplegable Mercado / cotización cuando el instrumento es ETF o tiene varias admisiones.

@@ -163,6 +163,13 @@ function exchangeDisplayName(code: string) {
   return names[key] || key || "Mercado sin identificar";
 }
 
+function isTradegateListing(listing: any) {
+  const code = String(listing?.exchange_code || "").toUpperCase();
+  const name = String(listing?.exchange_name || "").toLowerCase();
+  const sym = String(listing?.provider_symbol || "");
+  return sym.startsWith("TRADEGATE:") || ["TDG","TGAT","TGATE","TRADEGATE"].includes(code) || name.includes("tradegate");
+}
+
 function parseDecimal(value: string | null) {
   if (!value) return null;
   const n = Number(value.replace(/\s/g, "").replace(",", "."));
@@ -174,7 +181,7 @@ async function fetchTradegate(isin: string) {
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.3.7; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.3.8; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
@@ -193,8 +200,9 @@ async function fetchTradegate(isin: string) {
     const dateMatch = text.match(/Last Update:\s*(\d{2})\/(\d{2})\/(\d{4})/i);
     const priceDate = dateMatch ? `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}` : null;
     if (!ticker || !currency) return { ok: false, sourceUrl, status: response.status };
+    const instrumentType = /\bETF\s*\(/i.test(text) || /\bETF\b/i.test(text) ? "ETF" : null;
     return {
-      ok: true, sourceUrl: response.url || sourceUrl, ticker, currency, last, priceDate,
+      ok: true, sourceUrl: response.url || sourceUrl, ticker, currency, last, priceDate, instrumentType,
       providerSymbol: `TRADEGATE:${isin}`, exchangeCode: "TGAT", exchangeName: "Tradegate",
     };
   } catch (error) {
@@ -257,22 +265,41 @@ Deno.serve(async (req: Request) => {
       listings=[...listings.filter(l=>l.source!=="EODHD Search API"),...rows];
     }
 
-    const instrumentType=String(searchResults.find((r:any)=>r?.Type)?.Type ?? listings.find((r:any)=>r?.instrument_type)?.instrument_type ?? existing?.instrument_type ?? "").toUpperCase()||null;
+    let instrumentType=String(searchResults.find((r:any)=>r?.Type)?.Type ?? listings.find((r:any)=>r?.instrument_type)?.instrument_type ?? existing?.instrument_type ?? "").toUpperCase()||null;
     let tradegate:any={ok:false,sourceUrl:null};
     if(String(instrumentType||"").includes("ETF") || String(requestedListingSymbol||"").startsWith("TRADEGATE:")){
       tradegate=await fetchTradegate(isin);
       if(tradegate.ok){
         const nowIso=new Date().toISOString();
-        const row={provider_symbol:tradegate.providerSymbol,isin,ticker:tradegate.ticker,exchange_code:tradegate.exchangeCode,exchange_name:tradegate.exchangeName,currency:tradegate.currency,instrument_type:instrumentType||"ETF",is_primary:false,source:"Tradegate Exchange",fetched_at:nowIso};
+        if(tradegate.instrumentType) instrumentType=tradegate.instrumentType;
+        const row={provider_symbol:tradegate.providerSymbol,isin,ticker:tradegate.ticker,exchange_code:tradegate.exchangeCode,exchange_name:tradegate.exchangeName,currency:tradegate.currency,instrument_type:tradegate.instrumentType||instrumentType||"ETF",is_primary:false,source:"Tradegate Exchange",fetched_at:nowIso};
         await db(`instrument_listings?on_conflict=provider_symbol`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(row)});
         listings=[...listings.filter((l:any)=>l.provider_symbol!==row.provider_symbol),row];
         if(tradegate.last!=null&&tradegate.priceDate) await db(`listing_prices?on_conflict=provider_symbol,price_date`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({provider_symbol:row.provider_symbol,price_date:tradegate.priceDate,price:tradegate.last,currency:tradegate.currency,source:"Tradegate Exchange",fetched_at:nowIso})});
       }
     }
 
+    // Tradegate debe tener una única identidad canónica. Si la fuente directa está disponible,
+    // no devolvemos aliases EODHD de Tradegate al cliente para evitar precios de otro listado.
+    if(tradegate.ok){
+      const exact=listings.find((l:any)=>l.provider_symbol===tradegate.providerSymbol);
+      listings=[...listings.filter((l:any)=>!isTradegateListing(l)),...(exact?[exact]:[])];
+    }
+
     const requiresListing=listings.length>1||String(instrumentType||"").includes("ETF");
     let selectedListing:any=null;
-    if(requestedListingSymbol){ selectedListing=listings.find((l:any)=>l.provider_symbol===requestedListingSymbol)??null; if(!selectedListing)return json({ok:false,error:"LISTING_NOT_FOUND",listing_symbol:requestedListingSymbol,isin},400); }
+    if(requestedListingSymbol){
+      const requestedRaw=(await db(`instrument_listings?provider_symbol=eq.${encodeURIComponent(requestedListingSymbol)}&select=provider_symbol,isin,ticker,exchange_code,exchange_name,currency,instrument_type,is_primary,source,fetched_at&limit=1`));
+      const raw=Array.isArray(requestedRaw)?requestedRaw[0]??null:null;
+      const wantsTradegate=String(requestedListingSymbol).startsWith("TRADEGATE:")||isTradegateListing(raw);
+      if(wantsTradegate){
+        if(!tradegate.ok)return json({ok:false,error:"TRADEGATE_QUOTE_UNAVAILABLE",isin},502);
+        selectedListing=listings.find((l:any)=>l.provider_symbol===tradegate.providerSymbol)??null;
+      }else{
+        selectedListing=listings.find((l:any)=>l.provider_symbol===requestedListingSymbol)??null;
+      }
+      if(!selectedListing)return json({ok:false,error:"LISTING_NOT_FOUND",listing_symbol:requestedListingSymbol,isin},400);
+    }
     else if(!requiresListing){ selectedListing=listings.find((l:any)=>l.exchange_code==="EUFUND")??listings.find((l:any)=>l.is_primary===true)??listings[0]??null; }
 
     const selectedSearch=selectedListing?searchResults.find((r:any)=>`${r.Code}.${r.Exchange}`===selectedListing.provider_symbol):null;
