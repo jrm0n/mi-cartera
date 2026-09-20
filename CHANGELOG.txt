@@ -1,3 +1,10 @@
+v0.4.3 - 2026-09-20
+- La valoración de Tradegate prioriza el cierre de mercado de MarketScreener cuando puede verificarse para el mismo ISIN/listado.
+- Se conserva Tradegate Last como respaldo, no como cierre de valoración.
+- La fuente y fecha del precio usado quedan visibles en el detalle.
+- PWA: estrategia network-first para evitar arrancar con una versión antigua en caché.
+- El service worker busca actualizaciones sin usar la caché HTTP y recarga al tomar control una versión nueva.
+
 v0.4.2 Arranque actualizado y cierre de mercado - 2026-09-20
 - La actualización automática de mercado se espera durante el arranque; ya no queda ejecutándose en segundo plano mientras se muestran datos antiguos.
 - El bloque Desde última actualización se reinicia de forma segura al abrir la app y toma como base la cartera inmediatamente anterior al refresco.

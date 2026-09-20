@@ -1,4 +1,4 @@
-const APP_VERSION='0.4.2';
+const APP_VERSION='0.4.3';
 const VALIDATION_TOLERANCE_PCT=0.1;
 const DATA_SCHEMA_VERSION=6;
 const CACHE_KEY='mi_cartera_cloud_cache_v1';
@@ -429,5 +429,19 @@ document.querySelectorAll('#opFilter button').forEach(b=>b.onclick=()=>{state.op
 document.getElementById('themeBtn').onclick=toggleTheme;document.getElementById('themeDesktop').onclick=toggleTheme;
 const savedTheme=localStorage.getItem(THEME_KEY);if(savedTheme==='dark')document.documentElement.dataset.theme='dark';
 let deferredInstallPrompt=null;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;for(const id of ['installBtn','installDesktop']){const b=document.getElementById(id);if(b)b.style.display='block'}});async function installApp(){if(!deferredInstallPrompt){alert('Usa el menú del navegador: “Instalar aplicación” o “Añadir a pantalla de inicio”.');return}deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;for(const id of ['installBtn','installDesktop']){const b=document.getElementById(id);if(b)b.style.display='none'}}document.getElementById('installBtn').onclick=installApp;document.getElementById('installDesktop').onclick=installApp;
-if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(err=>console.warn('Service worker',err)))}
+if('serviceWorker' in navigator){
+ window.addEventListener('load',async()=>{
+  try{
+   const reg=await navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'});
+   await reg.update().catch(()=>{});
+   let reloading=false;
+   navigator.serviceWorker.addEventListener('controllerchange',()=>{
+    if(reloading)return; reloading=true; window.location.reload();
+   });
+   fetch(`./version.json?t=${Date.now()}`,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(v=>{
+    if(v?.appVersion&&v.appVersion!==APP_VERSION) reg.update().catch(()=>{});
+   }).catch(()=>{});
+  }catch(err){console.warn('Service worker',err)}
+ });
+}
 init();

@@ -102,7 +102,7 @@ async function fetchVdos(isin: string) {
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.2; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.3; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
@@ -124,7 +124,7 @@ async function fetchFinect(isin: string, name: string) {
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.2; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.3; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
@@ -181,7 +181,7 @@ async function fetchTradegate(isin: string) {
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.2; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.3; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
@@ -208,6 +208,66 @@ async function fetchTradegate(isin: string) {
   } catch (error) {
     return { ok: false, sourceUrl, error: String(error) };
   }
+}
+
+
+function marketScreenerAbsoluteUrl(base: string, href: string) {
+  try { return new URL(href, base).toString(); } catch { return null; }
+}
+
+function parseMarketScreenerDate(segment: string) {
+  const iso = segment.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const eu = segment.match(/\b(\d{2})[.\/-](\d{2})[.\/-](20\d{2})\b/);
+  if (eu) return `${eu[3]}-${eu[2]}-${eu[1]}`;
+  return null;
+}
+
+async function fetchMarketScreenerTradegateClose(isin: string) {
+  const searchUrls = [
+    `https://de.marketscreener.com/suchen/wertpapiere?q=${encodeURIComponent(isin)}`,
+    `https://www.marketscreener.com/search/?q=${encodeURIComponent(isin)}`,
+  ];
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.3; personal portfolio resolver)",
+    "Accept": "text/html,application/xhtml+xml",
+  };
+  const candidates: string[] = [];
+  for (const searchUrl of searchUrls) {
+    try {
+      const r = await fetch(searchUrl, { headers, redirect: "follow" });
+      if (!r.ok) continue;
+      const html = await r.text();
+      for (const m of html.matchAll(/href=["']([^"']+)["']/gi)) {
+        const href = m[1];
+        if (!/(?:\/quote\/etf\/|\/kurs\/etf\/|\/cotizacion\/etf\/|\/koers\/etf\/)/i.test(href)) continue;
+        const abs = marketScreenerAbsoluteUrl(r.url || searchUrl, href);
+        if (abs && !candidates.includes(abs)) candidates.push(abs);
+      }
+    } catch { /* fallback below */ }
+  }
+
+  for (const baseUrl of candidates.slice(0, 12)) {
+    const urls = [baseUrl, `${baseUrl.replace(/\/$/, "")}/quotes/`];
+    for (const sourceUrl of urls) {
+      try {
+        const r = await fetch(sourceUrl, { headers, redirect: "follow" });
+        if (!r.ok) continue;
+        const text = decodeHtml(await r.text());
+        if (!text.includes(isin) || !/Tradegate/i.test(text)) continue;
+        const marketMarker = text.search(/(?:Market Closed|B[öo]rse geschlossen|Mercado cerrado|Beurs gesloten)\s*-\s*Tradegate/i);
+        if (marketMarker < 0) continue;
+        const segment = text.slice(marketMarker, marketMarker + 650);
+        const priceMatch = segment.match(/([0-9]{1,4}(?:[.,][0-9]{1,4}))\s*(?:EUR|€)/i);
+        const close = parseDecimal(priceMatch?.[1] ?? null);
+        const priceDate = parseMarketScreenerDate(segment);
+        if (close && priceDate) {
+          return { ok: true, sourceUrl: r.url || sourceUrl, close, priceDate, source: "MarketScreener · Tradegate close" };
+        }
+      } catch { /* try next candidate */ }
+    }
+  }
+  return { ok: false, sourceUrl: searchUrls[0], close: null, priceDate: null, source: null };
 }
 
 
@@ -365,12 +425,22 @@ Deno.serve(async (req: Request) => {
         const row={provider_symbol:tradegate.providerSymbol,isin,ticker:tradegate.ticker,exchange_code:tradegate.exchangeCode,exchange_name:tradegate.exchangeName,currency:tradegate.currency,instrument_type:tradegate.instrumentType||instrumentType||"ETF",is_primary:false,source:"Tradegate Exchange",fetched_at:nowIso};
         await db(`instrument_listings?on_conflict=provider_symbol`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(row)});
         listings=[...listings.filter((l:any)=>l.provider_symbol!==row.provider_symbol),row];
-        let valuationPrice=tradegate.last, valuationDate=tradegate.priceDate, valuationSource="Tradegate Exchange · Last";
+        let valuationPrice=tradegate.last, valuationDate=tradegate.priceDate, valuationSource="Tradegate Exchange · Last (fallback)";
+        const marketClose=await fetchMarketScreenerTradegateClose(isin);
+        if(marketClose.ok && marketClose.close && marketClose.priceDate){
+          const direct=Number(tradegate.last);
+          const close=Number(marketClose.close);
+          const sameOrNewer=!tradegate.priceDate||String(marketClose.priceDate)>=String(tradegate.priceDate);
+          const plausible=!Number.isFinite(direct)||direct<=0||Math.abs(close/direct-1)<=0.05;
+          if(Number.isFinite(close)&&close>0&&sameOrNewer&&plausible){
+            valuationPrice=close; valuationDate=marketClose.priceDate; valuationSource=marketClose.source;
+          }
+        }
         const eodTg=searchResults.filter((r:any)=>{
           const l={provider_symbol:`${r.Code}.${r.Exchange}`,exchange_code:String(r.Exchange||""),exchange_name:exchangeDisplayName(String(r.Exchange||""))};
           return isTradegateListing(l)&&r?.previousClose!=null&&r?.previousCloseDate&&String(r?.Currency||"").toUpperCase()===String(tradegate.currency||"").toUpperCase();
         }).sort((a:any,b:any)=>String(b.previousCloseDate).localeCompare(String(a.previousCloseDate)))[0]??null;
-        if(eodTg){
+        if(eodTg && !(marketClose.ok && marketClose.close && marketClose.priceDate)){
           const eodPrice=Number(eodTg.previousClose), direct=Number(tradegate.last), sameOrNewer=!tradegate.priceDate||String(eodTg.previousCloseDate)>=String(tradegate.priceDate);
           const plausible=!Number.isFinite(direct)||direct<=0||Math.abs(eodPrice/direct-1)<=0.05;
           if(Number.isFinite(eodPrice)&&eodPrice>0&&sameOrNewer&&plausible){valuationPrice=eodPrice;valuationDate=String(eodTg.previousCloseDate);valuationSource="EODHD previous close · Tradegate";}
