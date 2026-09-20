@@ -1,57 +1,10 @@
-v0.3.8 - Corrección canónica de Tradegate
+v0.3.9 - Corrección de rentabilidades sin histórico y gráfico oficial Tradegate
 
-1) Ejecutar backend/009_tradegate_canonical_v0.3.8.sql en Supabase SQL Editor.
-2) Sustituir y desplegar supabase/functions/resolve-fund/index.ts.
-3) Subir el parche v0.3.8 a GitHub Pages.
-4) Las operaciones que apuntaban a un alias EODHD de Tradegate se migran al listado canónico TRADEGATE:<ISIN>.
-5) La app no volverá a valorar un ETF de Tradegate con una cotización de otro listado o con el VL global por ISIN.
+No requiere cambios en Supabase ni redeploy de resolve-fund.
+Subir todo el contenido del parche a GitHub Pages y forzar recarga.
 
-v0.3.7 - Cotizaciones ETF por mercado
-
-IMPORTANTE: antes de subir esta versión a GitHub:
-1) Ejecutar backend/008_etf_listings_v0.3.7.sql en Supabase SQL Editor.
-2) Sustituir y desplegar supabase/functions/resolve-fund/index.ts en la Edge Function resolve-fund.
-3) Subir el contenido de este paquete/parche a GitHub Pages.
-
-ETF YA EXISTENTE: no hay que volver a introducirlo. Abrir la operación, seleccionar Mercado / cotización y guardar.
-Para Tradegate, Mi Cartera consulta directamente Tradegate por ISIN y guarda esa cotización de forma separada.
-
-v0.3.6 - Corrección visual del logotipo de Trade Republic
-1) Ejecutar backend/007_operation_management_v0.3.4.sql en Supabase SQL Editor.
-2) Sustituir el código de la Edge Function resolve-fund por supabase/functions/resolve-fund/index.ts y desplegar.
-3) Subir a GitHub Pages los archivos de la v0.3.4.
-4) Las operaciones existentes se pueden editar, actualizar desde fuentes o eliminar.
-
-MI CARTERA v0.3.0 DATA (BETA)
-
-ORDEN DE INSTALACION
-1. El secreto EODHD_API_TOKEN debe existir en Supabase Edge Function Secrets.
-2. Ejecutar backend/005_data_sources_v0.3.0.sql en Supabase SQL Editor.
-3. Crear/desplegar la Edge Function resolve-fund con supabase/functions/resolve-fund/index.ts.
-   IMPORTANTE: desactivar la comprobacion legacy de JWT de gateway para resolve-fund.
-   La funcion valida por si misma el token de usuario contra Supabase Auth.
-4. Probar resolve-fund con un usuario autenticado y el ISIN LU2466448532.
-5. Solo despues, subir a GitHub Pages los archivos de raiz, app.js, config.js,
-   manifest.webmanifest, sw.js, version.json e icons/.
-
-FUENTES
-- EODHD: identificacion por ISIN, divisa, ultimo VL e historico EOD.
-- VDOS/Quefondos: categoria, gestora y referencia cuando el dato aparece expresamente
-  en la ficha publica. Si no aparece o la pagina no responde, queda Sin datos.
-
-NO SE HACE
-- No hay regex para deducir tematicas a partir del nombre.
-- No se inventa una categoria cuando la fuente no la proporciona.
-- No se guarda la API key EODHD en GitHub ni en el navegador.
-
-LIMITACION DEL PLAN EODHD FREE
-- La resolucion inicial de un ISIN desconocido consume una llamada Search.
-- La primera descarga de historico consume una llamada EOD adicional.
-- Una vez almacenado provider_symbol, las actualizaciones posteriores no necesitan repetir Search.
-
-v0.3.2 - Validacion de operaciones
-1) Ejecutar backend/006_operation_validation_v0.3.2.sql en Supabase SQL Editor.
-2) No es necesario redeplegar resolve-fund para esta version.
-3) Subir a GitHub Pages los archivos de la v0.3.2 y esperar al despliegue.
-4) Umbral de validacion: diferencia absoluta de VL < 0,1 % = aceptada; >= 0,1 % = pendiente.
-5) En traspasos se validan por separado fecha/VL de salida y fecha/VL de entrada.
+Cambios:
+- Evita mostrar +0,00 % cuando sólo existe una cotización y no hay histórico suficiente.
+- En esos casos muestra —, no un dato falso.
+- Para posiciones Tradegate muestra los gráficos oficiales publicados por Tradegate (1M, 1A y 5A).
+- Mantiene la valoración actual por la cotización exacta de Tradegate.

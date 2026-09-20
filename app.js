@@ -1,4 +1,4 @@
-const APP_VERSION='0.3.8';
+const APP_VERSION='0.3.9';
 const VALIDATION_TOLERANCE_PCT=0.1;
 const DATA_SCHEMA_VERSION=5;
 const CACHE_KEY='mi_cartera_cloud_cache_v1';
@@ -43,13 +43,15 @@ function firstHoldingDate(p,year){const y=Number(year);const jan=`${y}-01-01`;re
 function periodReturn(p,period=state.period){
  if(period==='total')return totalReturn(p);
  const year=Number(period);if(!Number.isInteger(year))return null;
- const source=p.listingSymbol?(listingHistory[p.listingSymbol]||[]):(navHistory[p.isin]||[]);const series=source.filter(r=>r.nav_date&&Number.isFinite(+r.nav)&&+r.nav>0);if(!series.length)return year===new Date().getFullYear()?p.ytd:null;
+ const source=p.listingSymbol?(listingHistory[p.listingSymbol]||[]):(navHistory[p.isin]||[]);const series=source.filter(r=>r.nav_date&&Number.isFinite(+r.nav)&&+r.nav>0);if(series.length<2)return null;
  const yearEnd=`${year}-12-31`;if(p.start&&p.start>yearEnd)return null;
  const startDate=firstHoldingDate(p,year);
  const endDate=year===new Date().getFullYear()?'9999-12-31':yearEnd;
  let base=null,end=null;
  for(const r of series){if(r.nav_date>=startDate&&!base)base=r;if(r.nav_date<=endDate)end=r;}
- if(!base||!end||end.nav_date<base.nav_date)return null;
+ if(!base||!end||end.nav_date<=base.nav_date)return null;
+ const startTime=new Date(startDate+'T00:00:00Z').getTime(),baseTime=new Date(base.nav_date+'T00:00:00Z').getTime();
+ if(Math.abs(baseTime-startTime)/86400000>14)return null;
  return (+end.nav/+base.nav-1)*100;
 }
 function positionsForPeriod(period=state.period){if(period==='total')return state.positions;const y=Number(period);if(!Number.isInteger(y))return state.positions;const end=`${y}-12-31`;return state.positions.filter(p=>!p.start||p.start<=end)}
@@ -159,8 +161,15 @@ async function ensureResolvedFund(isin,includeHistory=false){
  try{return await resolveFund(isin,includeHistory)}catch(err){const existing=state.funds?.[isin];await ensureFund(isin,existing?.name||isin,'Sin clasificar');throw err}
 }
 
-function nearestReturn(series,targetDate){
- if(!series?.length)return null;const latest=series[series.length-1];const target=targetDate.getTime();let base=null;for(const row of series){if(new Date(row.nav_date+'T00:00:00Z').getTime()>=target){base=row;break}}if(!base||!+base.nav||!+latest.nav)return null;return (+latest.nav/+base.nav-1)*100;
+function nearestReturn(series,targetDate,maxGapDays=14){
+ if(!series?.length||series.length<2)return null;
+ const latest=series[series.length-1],target=targetDate.getTime();let base=null,baseIndex=-1;
+ for(let i=0;i<series.length;i++){const row=series[i];if(new Date(row.nav_date+'T00:00:00Z').getTime()>=target){base=row;baseIndex=i;break}}
+ if(!base||baseIndex<0||baseIndex>=series.length-1||!+base.nav||!+latest.nav)return null;
+ const baseTime=new Date(base.nav_date+'T00:00:00Z').getTime();
+ const gapDays=Math.abs(baseTime-target)/86400000;
+ if(gapDays>maxGapDays)return null;
+ return (+latest.nav/+base.nav-1)*100;
 }
 function buildPositions(operations,accounts,funds,navRows,listingPriceRows=[]){
  const accountMap=Object.fromEntries(accounts.map(a=>[a.id,a]));
@@ -251,9 +260,21 @@ function renderAnalysis(){const groups={};state.positions.forEach(p=>groups[meta
 function renderAll(){renderPeriodSelectors();renderHome();renderPositions();renderOps();renderAnalysis()}
 
 function rangeDate(range){const d=new Date();if(range==='M1')d.setMonth(d.getMonth()-1);else if(range==='M3')d.setMonth(d.getMonth()-3);else if(range==='M6')d.setMonth(d.getMonth()-6);else if(range==='Y1')d.setFullYear(d.getFullYear()-1);else if(range==='Y3')d.setFullYear(d.getFullYear()-3);else if(range==='YTD')return new Date(Date.UTC(d.getUTCFullYear(),0,1));else return new Date(0);return d}
+function isTradegatePosition(p){return String(p?.listingSymbol||'').startsWith('TRADEGATE:')}
+function tradegateChartUrl(isin,range){const folder=range==='M1'?'monat':range==='Y5'?'5jahre':'jahr';return `https://www.tradegatebsx.com/images/charts/${folder}/${encodeURIComponent(isin)}.png`}
+function setTradegateChart(p,range){const img=document.getElementById('tradegateChart');const retEl=document.getElementById('rangeReturn');if(!img||!retEl)return;img.src=tradegateChartUrl(p.isin,range);retEl.textContent='Gráfico oficial Tradegate';}
 function seriesFor(p,range){const rows=p.listingSymbol?(listingHistory[p.listingSymbol]||[]):(navHistory[p.isin]||[]);const target=rangeDate(range).getTime();return rows.filter(r=>new Date(r.nav_date+'T00:00:00Z').getTime()>=target).map(r=>+r.nav)}
-function drawChart(p,range){const c=document.getElementById('fundChart');if(!c)return;const data=seriesFor(p,range);const retEl=document.getElementById('rangeReturn');if(data.length<2){const ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);retEl.textContent='Sin histórico suficiente';return}const dpr=window.devicePixelRatio||1,w=c.clientWidth,h=220;c.width=w*dpr;c.height=h*dpr;const ctx=c.getContext('2d');ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);const min=Math.min(...data),max=Math.max(...data),pad=16;ctx.strokeStyle=getComputedStyle(document.body).getPropertyValue('--line').trim();ctx.lineWidth=1;for(let i=0;i<4;i++){const y=pad+(h-2*pad)*i/3;ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(w-pad,y);ctx.stroke()}ctx.strokeStyle=data.at(-1)>=data[0]?'#0a8f4f':'#c43232';ctx.lineWidth=2;ctx.beginPath();data.forEach((v,i)=>{const x=pad+(w-2*pad)*i/(data.length-1),y=h-pad-(v-min)/(max-min||1)*(h-2*pad);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke();retEl.textContent=pct((data.at(-1)/data[0]-1)*100)}
-function openDetail(id){const p=state.positions.find(x=>x.id===id);if(!p)return;const m=meta(p),val=posValue(p),gain=val-p.invested,ret=p.invested?gain/p.invested*100:null;document.getElementById('detailContent').innerHTML=`<div class="drawer-head"><div><div class="eyebrow">${esc(p.entity)} · ${esc(m.theme)}</div><div class="drawer-title">${esc(m.name)}</div><div class="muted" style="font-size:12px;margin-top:4px">${esc(p.isin)}${p.listingSymbol&&state.listings?.[p.listingSymbol]?` · ${esc(listingLabel(state.listings[p.listingSymbol]))}`:''}</div></div><button class="close" onclick="closeDetail()">×</button></div><div class="detail-kpis"><div class="kpi"><span>Valor actual</span><strong>${eur(val)}</strong></div><div class="kpi"><span>Mi posición</span><strong class="${ret===null?'':ret>=0?'metric-positive':'metric-negative'}">${pct(ret)}</strong></div><div class="kpi"><span>Participaciones</span><strong>${(+p.shares).toLocaleString('es-ES',{maximumFractionDigits:6})}</strong></div><div class="kpi"><span>Precio / VL</span><strong>${p.nav?Number(p.nav).toFixed(4).replace('.',',')+' €':'—'}</strong></div></div><div class="chart-wrap"><div style="display:flex;justify-content:space-between;align-items:end"><div><div class="eyebrow">Evolución del fondo</div><strong id="rangeReturn">—</strong></div><div class="muted" style="font-size:11px">Histórico guardado en Supabase</div></div><canvas id="fundChart"></canvas><div class="rangebar" id="rangebar"><button data-range="M1">1M</button><button class="active" data-range="M3">3M</button><button data-range="M6">6M</button><button data-range="YTD">YTD</button><button data-range="Y1">1A</button><button data-range="Y3">3A</button><button data-range="MAX">Máx</button></div></div><div class="notice" style="margin-top:12px"><strong>Rentabilidad del fondo:</strong> 1M ${pct(p.m1)} · 3M ${pct(p.m3)} · YTD ${pct(p.ytd)}<br><strong>Resultado de mi inversión:</strong> ${gain>=0?'+':''}${eur(gain)} · ${pct(ret)}${p.navStatus==='market_required'?'<br><strong>Nota:</strong> selecciona el mercado/bolsa de este ETF para valorarlo.':p.navStatus==='provisional'?'<br><strong>Nota:</strong> valoración provisional hasta disponer de precio/VL online.':''}</div>`;document.getElementById('detailBackdrop').classList.add('open');document.querySelectorAll('#rangebar button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#rangebar button').forEach(x=>x.classList.remove('active'));b.classList.add('active');drawChart(p,b.dataset.range)});setTimeout(()=>drawChart(p,'M3'),30)}
+function drawChart(p,range){if(isTradegatePosition(p)){setTradegateChart(p,range);return}const c=document.getElementById('fundChart');if(!c)return;const data=seriesFor(p,range);const retEl=document.getElementById('rangeReturn');if(data.length<2){const ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);retEl.textContent='Sin histórico suficiente';return}const dpr=window.devicePixelRatio||1,w=c.clientWidth,h=220;c.width=w*dpr;c.height=h*dpr;const ctx=c.getContext('2d');ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);const min=Math.min(...data),max=Math.max(...data),pad=16;ctx.strokeStyle=getComputedStyle(document.body).getPropertyValue('--line').trim();ctx.lineWidth=1;for(let i=0;i<4;i++){const y=pad+(h-2*pad)*i/3;ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(w-pad,y);ctx.stroke()}ctx.strokeStyle=data.at(-1)>=data[0]?'#0a8f4f':'#c43232';ctx.lineWidth=2;ctx.beginPath();data.forEach((v,i)=>{const x=pad+(w-2*pad)*i/(data.length-1),y=h-pad-(v-min)/(max-min||1)*(h-2*pad);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke();retEl.textContent=pct((data.at(-1)/data[0]-1)*100)}
+function openDetail(id){
+ const p=state.positions.find(x=>x.id===id);if(!p)return;const m=meta(p),val=posValue(p),gain=val-p.invested,ret=p.invested?gain/p.invested*100:null;const tg=isTradegatePosition(p);
+ const chartHtml=tg
+ ? `<div class="chart-wrap"><div style="display:flex;justify-content:space-between;align-items:end"><div><div class="eyebrow">Evolución del ETF</div><strong id="rangeReturn">Gráfico oficial Tradegate</strong></div><div class="muted" style="font-size:11px">Fuente: Tradegate Exchange</div></div><div style="height:260px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-top:10px"><img id="tradegateChart" alt="Histórico Tradegate" style="max-width:100%;max-height:250px;object-fit:contain" /></div><div class="rangebar" id="rangebar"><button class="active" data-range="M1">1M</button><button data-range="Y1">1A</button><button data-range="Y5">5A</button></div><div class="muted" style="font-size:11px;margin-top:8px">Tradegate publica estos gráficos oficiales, pero no una serie histórica numérica pública utilizable por la app. Por eso no se calculan porcentajes cuando no hay datos numéricos suficientes.</div></div>`
+ : `<div class="chart-wrap"><div style="display:flex;justify-content:space-between;align-items:end"><div><div class="eyebrow">Evolución del fondo</div><strong id="rangeReturn">—</strong></div><div class="muted" style="font-size:11px">Histórico guardado en Supabase</div></div><canvas id="fundChart"></canvas><div class="rangebar" id="rangebar"><button data-range="M1">1M</button><button class="active" data-range="M3">3M</button><button data-range="M6">6M</button><button data-range="YTD">YTD</button><button data-range="Y1">1A</button><button data-range="Y3">3A</button><button data-range="MAX">Máx</button></div></div>`;
+ document.getElementById('detailContent').innerHTML=`<div class="drawer-head"><div><div class="eyebrow">${esc(p.entity)} · ${esc(m.theme)}</div><div class="drawer-title">${esc(m.name)}</div><div class="muted" style="font-size:12px;margin-top:4px">${esc(p.isin)}${p.listingSymbol&&state.listings?.[p.listingSymbol]?` · ${esc(listingLabel(state.listings[p.listingSymbol]))}`:''}</div></div><button class="close" onclick="closeDetail()">×</button></div><div class="detail-kpis"><div class="kpi"><span>Valor actual</span><strong>${eur(val)}</strong></div><div class="kpi"><span>Mi posición</span><strong class="${ret===null?'':ret>=0?'metric-positive':'metric-negative'}">${pct(ret)}</strong></div><div class="kpi"><span>Participaciones</span><strong>${(+p.shares).toLocaleString('es-ES',{maximumFractionDigits:6})}</strong></div><div class="kpi"><span>Precio / VL</span><strong>${p.nav?Number(p.nav).toFixed(4).replace('.',',')+' €':'—'}</strong></div></div>${chartHtml}<div class="notice" style="margin-top:12px"><strong>Rentabilidad del fondo:</strong> 1M ${pct(p.m1)} · 3M ${pct(p.m3)} · YTD ${pct(p.ytd)}<br><strong>Resultado de mi inversión:</strong> ${gain>=0?'+':''}${eur(gain)} · ${pct(ret)}${tg&&p.ytd===null?'<br><strong>Nota:</strong> sin histórico numérico exacto de Tradegate, la rentabilidad del fondo se muestra como “—” en lugar de 0 %.':''}${p.navStatus==='market_required'?'<br><strong>Nota:</strong> selecciona el mercado/bolsa de este ETF para valorarlo.':p.navStatus==='provisional'?'<br><strong>Nota:</strong> valoración provisional hasta disponer de precio/VL online.':''}</div>`;
+ document.getElementById('detailBackdrop').classList.add('open');
+ document.querySelectorAll('#rangebar button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#rangebar button').forEach(x=>x.classList.remove('active'));b.classList.add('active');drawChart(p,b.dataset.range)});
+ setTimeout(()=>drawChart(p,tg?'M1':'M3'),30)
+}
 function closeDetail(){document.getElementById('detailBackdrop').classList.remove('open')}
 window.closeDetail=closeDetail;
 

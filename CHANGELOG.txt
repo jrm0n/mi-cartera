@@ -1,3 +1,9 @@
+v0.3.9 Historial Tradegate y rentabilidades incompletas - 2026-09-20
+- Corregido el falso +0,00 % cuando sólo había un precio en listing_prices.
+- Rentabilidades sin base histórica suficiente pasan a mostrarse como —.
+- Detalle Tradegate usa gráficos oficiales de Tradegate para 1 mes, 1 año y 5 años.
+- No se sustituye el histórico de Tradegate por Xetra u otra bolsa.
+
 v0.3.8 Corrección canónica de Tradegate - 2026-09-20
 - Tradegate pasa a tener un único listado canónico TRADEGATE:<ISIN>.
 - Se eliminan del selector los alias duplicados de Tradegate devueltos por EODHD cuando existe la cotización oficial directa.
