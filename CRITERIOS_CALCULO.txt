@@ -1,4 +1,9 @@
-MI CARTERA v0.5.2 - CRITERIOS DE CALCULO
+MI CARTERA v0.6.0 - CRITERIOS DE CALCULO
+
+0. Separacion por cartera
+   Cada cuenta bancaria pertenece a una única cartera mediante portfolio_id.
+   Posiciones, operaciones, traspasos, totales y rentabilidades se calculan sólo con las cuentas de la cartera activa.
+   Cambiar de cartera no modifica los datos; únicamente cambia el conjunto de cuentas incluido en los cálculos.
 
 1. Posicion actual
    Participaciones actuales = suma de shares_delta de operaciones completadas de la misma cuenta, ISIN y cotizacion.

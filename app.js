@@ -1,8 +1,9 @@
-const APP_VERSION='0.5.2';
+const APP_VERSION='0.6.0';
 const VALIDATION_TOLERANCE_PCT=0.1;
-const DATA_SCHEMA_VERSION=8;
-const CACHE_KEY='mi_cartera_cloud_cache_v1';
+const DATA_SCHEMA_VERSION=9;
+const CACHE_KEY='mi_cartera_cloud_cache_v2';
 const SESSION_KEY='mi_cartera_supabase_session_v1';
+const ACTIVE_PORTFOLIO_KEY='mi_cartera_active_portfolio_v1';
 function renderVersionLabels(){
  const a=document.getElementById('appVersionLabel');if(a)a.textContent=`v${APP_VERSION}`;
  const b=document.getElementById('appVersionAnalysis');if(b)b.textContent=`Mi Cartera v${APP_VERSION} Cloud`;
@@ -37,7 +38,8 @@ let cloudAccounts=[];
 let navHistory={};
 let listingHistory={};
 let session=null;
-let state={positions:[],operations:[],calculationOperations:[],funds:{},listings:{},fxRates:{EUR:{rate:1,date:null,source:'EUR'}},group:'entity',opFilter:'all',period:String(new Date().getFullYear()),lastValue:null,lastNavUpdate:null,updatedAt:null};
+let cloudSnapshot=null;
+let state={positions:[],operations:[],calculationOperations:[],portfolios:[],activePortfolioId:null,funds:{},listings:{},fxRates:{EUR:{rate:1,date:null,source:'EUR'}},group:'entity',opFilter:'all',period:String(new Date().getFullYear()),lastValue:null,lastNavUpdate:null,updatedAt:null};
 
 function formatNumberES(value,minDecimals=2,maxDecimals=2){
  const n=Number(value);if(!Number.isFinite(n))return '—';
@@ -70,7 +72,7 @@ async function refreshEurRates(currencies){
  }));
 }
 
-// --- Motor de calculo v0.5.2 -------------------------------------------------
+// --- Motor de calculo v0.6.0 -------------------------------------------------
 // Criterios:
 // 1) La valoracion actual usa SIEMPRE un precio/VL exacto del mercado seleccionado.
 //    Los historicos proxy solo sirven para curvas y rendimientos historicos aproximados.
@@ -182,7 +184,7 @@ function saveSession(s){session=s;if(s)localStorage.setItem(SESSION_KEY,JSON.str
 function setCloudStatus(text,kind=''){const el=document.getElementById('cloudStatus');if(el)el.textContent=text;const b=document.getElementById('syncBadge');if(b){b.textContent=text;b.dataset.kind=kind}}
 function setAuthMessage(text,isError=false){const el=document.getElementById('authMessage');if(el){el.textContent=text||'';el.classList.toggle('metric-negative',!!isError)}}
 function showAuth(){document.getElementById('authGate')?.classList.remove('hidden');document.getElementById('app')?.classList.add('auth-hidden')}
-function showApp(){document.getElementById('authGate')?.classList.add('hidden');document.getElementById('app')?.classList.remove('auth-hidden');const email=session?.user?.email||'';const u=document.getElementById('signedUser');if(u)u.textContent=email;const b=document.querySelector('.brand');if(b)b.textContent=session?.user?.user_metadata?.display_name||'Mi Cartera'}
+function showApp(){document.getElementById('authGate')?.classList.add('hidden');document.getElementById('app')?.classList.remove('auth-hidden');const email=session?.user?.email||'';const u=document.getElementById('signedUser');if(u)u.textContent=email}
 
 async function authFetch(path,options={}){
  const res=await fetch(SUPABASE_URL+path,{...options,headers:{'apikey':SUPABASE_KEY,'Content-Type':'application/json',...(options.headers||{})}});
@@ -219,6 +221,7 @@ async function rest(path,options={},retry=true){
 const select=(table,query='')=>rest(`${table}${query?'?'+query:''}`);
 const insert=(table,body)=>rest(table,{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify(body)});
 const patch=(table,query,body)=>rest(`${table}?${query}`,{method:'PATCH',headers:{Prefer:'return=representation'},body:JSON.stringify(body)});
+const remove=(table,query)=>rest(`${table}?${query}`,{method:'DELETE',headers:{Prefer:'return=representation'}});
 const rpc=(name,body)=>rest(`rpc/${name}`,{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify(body)});
 
 async function edge(name,body,retry=true){
@@ -370,28 +373,65 @@ function mapOperations(ops,transfers,accounts){
  return out.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
 }
 
+function activePortfolio(){return state.portfolios.find(p=>p.id===state.activePortfolioId)||null}
+function renderPortfolioSelector(){
+ const sel=document.getElementById('portfolioSelect');if(!sel)return;
+ const rows=(state.portfolios||[]).filter(p=>p.active!==false);sel.innerHTML=rows.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+ if(state.activePortfolioId)sel.value=state.activePortfolioId;sel.disabled=rows.length<2;
+}
+function applyActivePortfolio(){
+ if(!cloudSnapshot)return false;
+ const portfolioId=state.activePortfolioId,accounts=(cloudSnapshot.accounts||[]).filter(a=>a.portfolio_id===portfolioId&&a.active!==false),accountIds=new Set(accounts.map(a=>a.id));
+ const ops=(cloudSnapshot.ops||[]).filter(o=>accountIds.has(o.account_id)),transfers=(cloudSnapshot.transfers||[]).filter(t=>accountIds.has(t.from_account_id)&&accountIds.has(t.to_account_id));
+ cloudAccounts=accounts;
+ state.positions=buildPositions(ops,accounts,cloudSnapshot.funds||[],cloudSnapshot.navs||[],cloudSnapshot.listingPrices||[]);
+ state.calculationOperations=mapCalculationOperations(ops,accounts);state.operations=mapOperations(ops,transfers,accounts);
+ saveCache();renderAll();return true;
+}
+async function changeActivePortfolio(id){
+ if(!state.portfolios.some(p=>p.id===id&&p.active!==false))return;
+ state.activePortfolioId=id;state.lastValue=null;localStorage.setItem(ACTIVE_PORTFOLIO_KEY,id);
+ if(!applyActivePortfolio())await syncFromCloud();
+}
+function portfolioNameInputId(id){return 'portfolioName_'+String(id).replace(/[^a-zA-Z0-9_-]/g,'_')}
+function openPortfolioManager(){
+ const rows=(state.portfolios||[]).filter(p=>p.active!==false),counts={};for(const a of cloudSnapshot?.accounts||[])counts[a.portfolio_id]=(counts[a.portfolio_id]||0)+1;
+ document.getElementById('opContent').innerHTML=`<div class="drawer-head"><div><div class="eyebrow">Configuración</div><div class="drawer-title">Gestionar carteras</div></div><button class="close" onclick="closeOp()">×</button></div><div class="notice" style="margin:14px 0">Cada cartera mantiene separadas sus entidades, fondos, operaciones y rentabilidad. Todas utilizan el mismo inicio de sesión.</div><div class="portfolio-list">${rows.map(p=>`<div class="portfolio-row"><div><input id="${portfolioNameInputId(p.id)}" value="${esc(p.name)}" maxlength="60" aria-label="Nombre de la cartera"><div class="muted" style="font-size:11px;margin-top:4px">${counts[p.id]||0} ${(counts[p.id]||0)===1?'cuenta':'cuentas'}${p.id===state.activePortfolioId?' · activa':''}</div></div><div class="portfolio-actions"><button class="btn small" onclick="renamePortfolio('${esc(p.id)}')">Guardar</button>${rows.length>1?`<button class="btn danger small" onclick="deletePortfolio('${esc(p.id)}')">Eliminar</button>`:''}</div></div>`).join('')}</div><div class="form-grid" style="margin-top:16px"><div class="field"><label>Nueva cartera</label><input id="fNewPortfolioName" maxlength="60" placeholder="Por ejemplo: Padres o Hija"></div></div><div class="form-actions"><button class="btn" onclick="closeOp()">Cerrar</button><button class="btn primary" onclick="createPortfolio()">+ Crear cartera</button></div>`;
+ document.getElementById('opBackdrop').classList.add('open');
+}
+async function renamePortfolio(id){
+ try{const input=document.getElementById(portfolioNameInputId(id)),name=input?.value.trim();if(!name)throw new Error('Introduce un nombre.');if(state.portfolios.some(p=>p.id!==id&&p.active!==false&&p.name.trim().toLowerCase()===name.toLowerCase()))throw new Error('Ya existe una cartera con ese nombre.');await patch('portfolios',`id=eq.${encodeURIComponent(id)}`,{name});await syncFromCloud();openPortfolioManager()}catch(err){alert('No se pudo cambiar el nombre: '+err.message)}
+}
+async function createPortfolio(){
+ try{const name=document.getElementById('fNewPortfolioName')?.value.trim();if(!name)throw new Error('Introduce un nombre.');if(state.portfolios.some(p=>p.active!==false&&p.name.trim().toLowerCase()===name.toLowerCase()))throw new Error('Ya existe una cartera con ese nombre.');const rows=await insert('portfolios',{name,active:true,sort_order:state.portfolios.length});const created=rows?.[0];if(!created?.id)throw new Error('Supabase no devolvió la nueva cartera.');state.activePortfolioId=created.id;state.lastValue=null;localStorage.setItem(ACTIVE_PORTFOLIO_KEY,created.id);await syncFromCloud();openPortfolioManager()}catch(err){alert('No se pudo crear la cartera: '+err.message)}
+}
+async function deletePortfolio(id){
+ try{const portfolio=state.portfolios.find(p=>p.id===id);if(!portfolio)return;const count=(cloudSnapshot?.accounts||[]).filter(a=>a.portfolio_id===id).length;if(count)throw new Error('La cartera contiene cuentas. Debes vaciarla antes de eliminarla.');if(state.portfolios.filter(p=>p.active!==false).length<=1)throw new Error('Debe existir al menos una cartera.');if(!confirm(`¿Eliminar la cartera “${portfolio.name}”?`))return;await remove('portfolios',`id=eq.${encodeURIComponent(id)}`);const next=state.portfolios.find(p=>p.id!==id&&p.active!==false);state.activePortfolioId=next?.id||null;state.lastValue=null;if(next)localStorage.setItem(ACTIVE_PORTFOLIO_KEY,next.id);await syncFromCloud();openPortfolioManager()}catch(err){alert('No se pudo eliminar la cartera: '+err.message)}
+}
+window.changeActivePortfolio=changeActivePortfolio;window.openPortfolioManager=openPortfolioManager;window.renamePortfolio=renamePortfolio;window.createPortfolio=createPortfolio;window.deletePortfolio=deletePortfolio;
+
 async function syncFromCloud(showNotice=false){
  setCloudStatus('Sincronizando…');
  try{
-   const [accounts,ops,transfers,funds,navs,listings,listingPrices,profile]=await Promise.all([
-     select('accounts','select=id,institution_code,account_name,active,created_at&order=created_at'),
+   try{await rpc('ensure_default_portfolio_v1',{p_name:'Mi cartera'})}catch(err){if(/ensure_default_portfolio_v1|schema cache|PGRST202/i.test(String(err?.message||err)))throw new Error('Falta ejecutar la migración 014_portfolios_v0.6.0.sql en Supabase.');throw err}
+   const [portfolios,accounts,ops,transfers,funds,navs,listings,listingPrices]=await Promise.all([
+     select('portfolios','active=eq.true&select=id,name,is_default,active,sort_order,created_at&order=sort_order,created_at'),
+     select('accounts','select=id,portfolio_id,institution_code,account_name,active,created_at&order=created_at'),
      select('operations','select=id,account_id,isin,listing_symbol,operation_type,operation_date,request_date,execution_date,amount,shares_delta,nav,fees,external_cashflow,status,validation_status,reference_nav,reference_nav_date,nav_difference_pct,input_consistency_pct,execution_confirmed,transfer_id,notes,created_at,updated_at&order=operation_date.desc,created_at.desc'),
      select('transfers','select=id,from_account_id,from_isin,to_account_id,to_isin,request_date,settlement_date,out_execution_date,in_execution_date,amount,shares_out,shares_in,nav_out,nav_in,status,validation_status,out_reference_nav,in_reference_nav,out_difference_pct,in_difference_pct,notes,created_at,updated_at&order=request_date.desc,created_at.desc'),
      select('funds','select=isin,name,manager,currency,theme,subtheme,benchmark,active,category,category_source,category_fetched_at,data_provider,provider_symbol,instrument_type,metadata_source,metadata_fetched_at'),
      select('fund_navs','select=isin,nav_date,nav,currency,source,fetched_at&order=nav_date.desc&limit=20000'),
      select('instrument_listings','select=provider_symbol,isin,ticker,exchange_code,exchange_name,currency,instrument_type,is_primary,source,fetched_at&order=isin,exchange_name,ticker'),
-     select('listing_prices','select=provider_symbol,price_date,price,currency,source,fetched_at,is_approximate,proxy_symbol,calibration_factor,approximation_method,calibration_date&order=price_date.desc&limit=30000'),
-     select('profiles','select=display_name&limit=1')
+     select('listing_prices','select=provider_symbol,price_date,price,currency,source,fetched_at,is_approximate,proxy_symbol,calibration_factor,approximation_method,calibration_date&order=price_date.desc&limit=30000')
    ]);
-   cloudAccounts=accounts||[];state.funds={};state.listings={};
+   state.portfolios=portfolios||[];const remembered=localStorage.getItem(ACTIVE_PORTFOLIO_KEY),wanted=state.portfolios.find(p=>p.id===remembered)||state.portfolios.find(p=>p.id===state.activePortfolioId)||state.portfolios.find(p=>p.is_default)||state.portfolios[0];if(!wanted)throw new Error('No se pudo crear la cartera inicial.');state.activePortfolioId=wanted.id;localStorage.setItem(ACTIVE_PORTFOLIO_KEY,wanted.id);
+   cloudSnapshot={accounts:accounts||[],ops:ops||[],transfers:transfers||[],funds:funds||[],navs:navs||[],listings:listings||[],listingPrices:listingPrices||[]};state.funds={};state.listings={};
    for(const f of funds||[])state.funds[f.isin]={...f,theme:(f.theme&&f.theme!=='Sin clasificar')?f.theme:(f.category||'Sin clasificar')};
    for(const l of listings||[])state.listings[l.provider_symbol]=l;
    for(const n of navs||[]){const f=state.funds[n.isin];if(!f)continue;if(!f.latest_nav||n.nav_date>f.latest_nav.date)f.latest_nav={date:n.nav_date,nav:+n.nav,currency:n.currency||f.currency||'EUR',source:n.source||'Supabase',fetched_at:n.fetched_at||null}}
    await refreshEurRates([...(funds||[]).map(f=>f.currency),...(listings||[]).map(l=>l.currency),...(navs||[]).map(n=>n.currency),...(listingPrices||[]).map(p=>p.currency)]);
-   state.positions=buildPositions(ops||[],accounts||[],funds||[],navs||[],listingPrices||[]);state.calculationOperations=mapCalculationOperations(ops||[],accounts||[]);state.operations=mapOperations(ops||[],transfers||[],accounts||[]);
    const lastFund=(navs||[]).reduce((m,n)=>!m||n.nav_date>m?n.nav_date:m,null);const lastListing=(listingPrices||[]).reduce((m,n)=>!m||n.price_date>m?n.price_date:m,null);state.lastNavUpdate=[lastFund,lastListing].filter(Boolean).sort().at(-1)||null;
-   saveCache();renderAll();
-   const name=profile?.[0]?.display_name;if(name){const b=document.querySelector('.brand');if(b)b.textContent=name}
+   applyActivePortfolio();
    setCloudStatus('Sincronizado con Supabase','ok');if(showNotice)alert('Datos sincronizados con Supabase.');return true;
  }catch(err){console.error(err);setCloudStatus('Sin conexión · mostrando última copia local','warn');if(showNotice)alert('No se pudo sincronizar: '+err.message);return false}
 }
@@ -400,8 +440,8 @@ async function ensureFund(isin,name,theme){
  const existing=state.funds?.[isin];if(existing)return existing;const rows=await rpc('ensure_fund',{p_isin:isin,p_name:name||isin,p_theme:theme||'Sin clasificar',p_currency:'EUR'});return Array.isArray(rows)?rows[0]:rows;
 }
 async function ensureAccount(entity){
- const code=ENTITY[entity]?.code||entity;let a=cloudAccounts.find(x=>x.institution_code===code&&x.active!==false);if(a)return a;
- const rows=await insert('accounts',{institution_code:code,account_name:'Principal',active:true});a=rows?.[0];if(!a)throw new Error('No se pudo crear la cuenta de '+entity);cloudAccounts.push(a);return a;
+ const code=ENTITY[entity]?.code||entity,portfolio=activePortfolio();if(!portfolio)throw new Error('Selecciona una cartera activa.');let a=cloudAccounts.find(x=>x.portfolio_id===portfolio.id&&x.institution_code===code&&x.active!==false);if(a)return a;
+ const rows=await insert('accounts',{portfolio_id:portfolio.id,institution_code:code,account_name:'Principal',active:true});a=rows?.[0];if(!a)throw new Error('No se pudo crear la cuenta de '+entity);cloudAccounts.push(a);if(cloudSnapshot)cloudSnapshot.accounts.push(a);return a;
 }
 
 function renderHome(){
@@ -423,7 +463,7 @@ function renderOps(){
  document.querySelectorAll('[data-edit-basic]').forEach(card=>card.onclick=()=>openBasicOperation(card.dataset.editBasic));
 }
 function renderAnalysis(){const groups={};state.positions.forEach(p=>groups[meta(p).theme]=(groups[meta(p).theme]||0)+posValue(p));const t=total();document.getElementById('themeBars').innerHTML=t?Object.entries(groups).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="barrow"><div>${esc(k)}</div><div class="bartrack"><div class="barfill" style="width:${v/t*100}%;color:#334155"></div></div><div class="barval">${(v/t*100).toFixed(1).replace('.',',')}%</div></div>`).join(''):'<div class="notice">Sin posiciones.</div>'}
-function renderAll(){renderPeriodSelectors();renderHome();renderPositions();renderOps();renderAnalysis()}
+function renderAll(){renderPortfolioSelector();renderPeriodSelectors();renderHome();renderPositions();renderOps();renderAnalysis()}
 
 function rangeDate(range){const d=new Date();if(range==='M1')d.setMonth(d.getMonth()-1);else if(range==='M3')d.setMonth(d.getMonth()-3);else if(range==='M6')d.setMonth(d.getMonth()-6);else if(range==='Y1')d.setFullYear(d.getFullYear()-1);else if(range==='Y3')d.setFullYear(d.getFullYear()-3);else if(range==='YTD')return new Date(Date.UTC(d.getUTCFullYear(),0,1));else return new Date(0);return d}
 function seriesRowsFor(p,range){const rows=p.listingSymbol?(listingHistory[p.listingSymbol]||[]):(navHistory[p.isin]||[]);const target=rangeDate(range).getTime();return rows.filter(r=>new Date(r.nav_date+'T00:00:00Z').getTime()>=target&&Number.isFinite(+r.nav)&&+r.nav>0)}
@@ -581,7 +621,7 @@ async function refreshAllMarketData(showNotice=true){
 async function refreshPortfolio(){state.lastValue=total();saveCache();await refreshAllMarketData(true)}
 function startupRefreshDue(){const raw=localStorage.getItem(AUTO_REFRESH_KEY);if(!raw)return true;const t=Date.parse(raw);if(!Number.isFinite(t))return true;return Date.now()-t>=12*3600*1000}
 async function refreshOnStartup(){if(!state.positions.length||!startupRefreshDue())return;state.lastValue=total();saveCache();const el=document.getElementById('sinceUpdate');if(el)el.innerHTML='<span class="muted">Actualizando…</span>';setCloudStatus('Actualizando mercados…');try{await refreshAllMarketData(false)}catch(err){console.warn('Auto refresh',err);setCloudStatus('Sincronizado con Supabase · actualización pendiente','warn')}}
-function exportBackup(){const payload={app:'Mi Cartera',appVersion:APP_VERSION,schemaVersion:DATA_SCHEMA_VERSION,exportedAt:new Date().toISOString(),cloudProject:SUPABASE_URL,state};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`mi-cartera-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+function exportBackup(){const payload={app:'Mi Cartera',appVersion:APP_VERSION,schemaVersion:DATA_SCHEMA_VERSION,exportedAt:new Date().toISOString(),cloudProject:SUPABASE_URL,state,cloudData:cloudSnapshot};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`mi-cartera-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 window.exportBackup=exportBackup;
 
 function toggleTheme(){const root=document.documentElement;root.dataset.theme=root.dataset.theme==='dark'?'':'dark';localStorage.setItem(THEME_KEY,root.dataset.theme||'light');setTimeout(()=>{const c=document.getElementById('fundChart');if(c){const p=state.positions.find(x=>document.getElementById('detailBackdrop').classList.contains('open')&&document.getElementById('detailContent').textContent.includes(meta(x).name));if(p)drawChart(p,'YTD')}},30)}
@@ -593,6 +633,7 @@ async function init(){
 
 document.getElementById('loginForm')?.addEventListener('submit',async e=>{e.preventDefault();const email=document.getElementById('loginEmail').value.trim(),password=document.getElementById('loginPassword').value;const btn=document.getElementById('loginBtn');btn.disabled=true;setAuthMessage('Conectando…');try{await signIn(email,password);showApp();setAuthMessage('');await syncFromCloud()}catch(err){setAuthMessage(err.message,true)}finally{btn.disabled=false}});
 document.getElementById('logoutBtn')?.addEventListener('click',signOut);
+document.getElementById('portfolioSelect')?.addEventListener('change',e=>changeActivePortfolio(e.target.value));document.getElementById('managePortfoliosBtn')?.addEventListener('click',openPortfolioManager);
 document.getElementById('refreshBtn').onclick=refreshPortfolio;document.getElementById('newOpFab').onclick=openNewOp;document.getElementById('newOpTop').onclick=openNewOp;document.getElementById('positionSearch').oninput=renderPositions;
 document.getElementById('opBackdrop').addEventListener('click',e=>{if(e.target.id==='opBackdrop')closeOp()});document.getElementById('detailBackdrop').addEventListener('click',e=>{if(e.target.id==='detailBackdrop')closeDetail()});
 document.querySelectorAll('#groupMode button').forEach(b=>b.onclick=()=>{state.group=b.dataset.group;document.querySelectorAll('#groupMode button').forEach(x=>x.classList.toggle('active',x===b));saveCache();renderPositions()});

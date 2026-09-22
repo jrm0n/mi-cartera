@@ -23,7 +23,7 @@
 *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
 button,input,select{font:inherit}.app{min-height:100vh;padding-bottom:calc(var(--navh) + env(safe-area-inset-bottom) + 12px)}
 .topbar{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%, transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
-.topbar-inner{max-width:1180px;margin:auto;padding:14px 16px;display:flex;align-items:center;gap:12px}.brand{font-weight:800;font-size:19px;letter-spacing:-.02em}.spacer{flex:1}
+.topbar-inner{max-width:1180px;margin:auto;padding:14px 16px;display:flex;align-items:center;gap:12px}.brand{font-weight:800;font-size:19px;letter-spacing:-.02em}.spacer{flex:1}.portfolio-head{min-width:0;display:grid;gap:2px}.portfolio-select{appearance:auto;max-width:min(46vw,320px);border:0;background:transparent;color:var(--text);font-weight:850;font-size:19px;letter-spacing:-.02em;padding:0 24px 0 0;cursor:pointer}.portfolio-select:focus{outline:2px solid color-mix(in srgb,var(--accent) 35%,transparent);outline-offset:3px;border-radius:6px}.portfolio-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;border:1px solid var(--line);border-radius:13px;padding:10px;background:var(--panel2)}.portfolio-row input{width:100%;min-width:0;min-height:42px;border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:10px;padding:0 10px}.portfolio-actions{display:flex;gap:6px;flex-wrap:wrap}.portfolio-list{display:grid;gap:9px}
 .iconbtn,.btn{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:12px;min-height:42px;padding:0 13px;cursor:pointer}.iconbtn{width:42px;padding:0}.btn.primary{background:#111827;color:#fff;border-color:#111827}.btn.ghost{background:transparent}.btn.danger{background:#fff1f2;color:#b42318;border-color:#fecdd3}.btn.small{min-height:36px;padding:0 10px;font-size:13px}
 main{max-width:1180px;margin:auto;padding:18px 14px}.page{display:none}.page.active{display:block}.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:800}.hero{display:grid;gap:12px}.hero-card{background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:18px;box-shadow:var(--shadow)}
 .hero-value{font-size:34px;font-weight:850;letter-spacing:-.04em;margin:4px 0}.hero-meta{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.metric-positive{color:var(--good);font-weight:750}.metric-negative{color:var(--bad);font-weight:750}.muted{color:var(--muted)}
@@ -41,6 +41,7 @@ main{max-width:1180px;margin:auto;padding:18px 14px}.page{display:none}.page.act
 @media(min-width:760px){
   .app{padding-bottom:20px;padding-left:220px}.bottom-nav{display:none}.desktop-side{display:flex;position:fixed;left:0;top:0;bottom:0;width:220px;background:var(--panel);border-right:1px solid var(--line);padding:22px 14px;flex-direction:column;z-index:40}.sidebrand{font-size:20px;font-weight:900;margin:0 10px 22px}.sidebtn{border:0;background:transparent;color:var(--muted);text-align:left;padding:12px;border-radius:11px;cursor:pointer;margin:2px 0}.sidebtn.active{background:var(--panel2);color:var(--text);font-weight:800}.topbar-inner{padding-left:22px;padding-right:22px}.summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.position-list{grid-template-columns:repeat(2,minmax(0,1fr))}.drawer{left:50%;right:auto;bottom:50%;transform:translate(-50%,50%);width:min(760px,90vw);border-radius:24px;max-height:88vh}.fab{right:28px;bottom:28px}.detail-kpis{grid-template-columns:repeat(4,1fr)}
 }
+@media(max-width:620px){.sync-badge{display:none}.topbar-inner{gap:6px}.portfolio-select{max-width:42vw}.iconbtn{width:40px;min-width:40px}}
 @media(min-width:1050px){.summary-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.position-list{grid-template-columns:repeat(3,minmax(0,1fr))}.hero{grid-template-columns:1.4fr .6fr}}
 
 .auth-hidden{visibility:hidden}.auth-gate{position:fixed;inset:0;z-index:999;background:var(--bg);display:grid;place-items:center;padding:20px}.auth-gate.hidden{display:none}.auth-card{width:min(430px,100%);background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:22px;box-shadow:var(--shadow)}.auth-title{font-size:25px;font-weight:900;letter-spacing:-.035em;margin:3px 0 4px}.auth-sub{font-size:13px;color:var(--muted);line-height:1.45;margin-bottom:18px}.auth-form{display:grid;gap:12px}.auth-form input{width:100%;min-height:48px;border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:13px;padding:0 13px}.auth-form .btn{min-height:48px}.sync-badge{font-size:11px;color:var(--muted);max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sync-badge[data-kind="ok"]{color:var(--good)}.sync-badge[data-kind="warn"]{color:var(--warn)}
@@ -58,13 +59,14 @@ main{max-width:1180px;margin:auto;padding:18px 14px}.page{display:none}.page.act
     <div class="spacer"></div>
     <button class="sidebtn" id="installDesktop" style="display:none">Instalar app</button>
     <button class="sidebtn" id="themeDesktop">Modo oscuro</button>
-    <div class="muted" id="appVersionLabel" style="font-size:11px;padding:8px 4px">v0.5.2</div>
+    <div class="muted" id="appVersionLabel" style="font-size:11px;padding:8px 4px">v0.6.0</div>
   </aside>
 
   <header class="topbar"><div class="topbar-inner">
-    <div><div class="eyebrow">Cartera activa</div><div class="brand">JoseRa</div></div>
+    <div class="portfolio-head"><label class="eyebrow" for="portfolioSelect">Cartera activa</label><select id="portfolioSelect" class="portfolio-select" aria-label="Seleccionar cartera"><option>Mi cartera</option></select></div>
     <div class="spacer"></div>
     <span class="sync-badge" id="syncBadge">Conectando…</span>
+    <button class="iconbtn" id="managePortfoliosBtn" aria-label="Gestionar carteras" title="Gestionar carteras">⚙</button>
     <button class="iconbtn" id="logoutBtn" aria-label="Cerrar sesión" title="Cerrar sesión">⇥</button>
     <button class="iconbtn" id="installBtn" aria-label="Instalar app" title="Instalar app" style="display:none">⇩</button>
     <button class="iconbtn" id="themeBtn" aria-label="Cambiar tema">◐</button>
@@ -110,7 +112,7 @@ main{max-width:1180px;margin:auto;padding:18px 14px}.page{display:none}.page.act
     <section class="page" id="page-analysis">
       <div class="section-head"><h2>Análisis</h2></div>
       <div class="analysis-card"><div class="eyebrow">Distribución temática</div><div class="mini-bars" id="themeBars"></div></div>
-      <div class="analysis-card"><div class="eyebrow">Datos y versión</div><p style="line-height:1.5;margin:8px 0 10px"><strong id="appVersionAnalysis">Mi Cartera v0.5.2 Cloud</strong> · esquema de datos <span id="schemaVersionAnalysis">8</span>.<br>Supabase es la fuente de verdad. La app conserva además una copia local de lectura para poder mostrar la última cartera si temporalmente no hay conexión.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small" onclick="exportBackup()">Exportar copia</button><button class="btn small" onclick="syncFromCloud(true)">Sincronizar ahora</button></div><div class="notice" id="cloudStatus" style="margin-top:10px">Conectando con Supabase…</div><div class="muted" id="signedUser" style="font-size:12px;margin-top:8px"></div></div>
+      <div class="analysis-card"><div class="eyebrow">Datos y versión</div><p style="line-height:1.5;margin:8px 0 10px"><strong id="appVersionAnalysis">Mi Cartera v0.6.0 Cloud</strong> · esquema de datos <span id="schemaVersionAnalysis">9</span>.<br>Supabase es la fuente de verdad. La app conserva además una copia local de lectura para poder mostrar la última cartera si temporalmente no hay conexión.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small" onclick="exportBackup()">Exportar copia</button><button class="btn small" onclick="syncFromCloud(true)">Sincronizar ahora</button></div><div class="notice" id="cloudStatus" style="margin-top:10px">Conectando con Supabase…</div><div class="muted" id="signedUser" style="font-size:12px;margin-top:8px"></div></div>
     </section>
   </main>
 

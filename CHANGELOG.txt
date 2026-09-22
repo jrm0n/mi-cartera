@@ -1,3 +1,13 @@
+v0.6.0 - 2026-09-22
+- Añade varias carteras independientes bajo un único inicio de sesión.
+- Selector "Cartera activa" en la cabecera para alternar entre personas sin mezclar fondos ni operaciones.
+- Pantalla "Gestionar carteras" para crear, renombrar y eliminar carteras vacías.
+- Los nombres se eligen y modifican desde la propia aplicación; no están ligados al nombre del usuario de Supabase.
+- Las cuentas bancarias pasan a pertenecer a una cartera concreta, por lo que puede existir un Bankinter distinto en cada una.
+- La migración 014 crea una cartera inicial y le asigna automáticamente todas las cuentas y operaciones existentes sin duplicarlas.
+- La exportación de copia incluye todas las carteras y sus datos cargados.
+- Esquema de datos actualizado a versión 9.
+
 v0.5.2 - 2026-09-22
 - Repara automáticamente el error 23503/instrument_listings_isin_fkey: crea primero el registro base del fondo y repite la identificación.
 - La reparación es general y cubre cualquier ISIN afectado, incluidos ES0114868039, IE00BM95B621, LU1223083087, ES0165265002 y LU2286300988.
