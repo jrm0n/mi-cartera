@@ -1,3 +1,9 @@
+v0.5.2 - Reparación del alta automática por ISIN
+
+No requiere SQL nuevo. Publica los archivos del parche en la raíz del repositorio de GitHub.
+
+La app crea automáticamente el registro base del fondo cuando Supabase devuelve la violación de clave foránea 23503 y repite la consulta. También incorpora un respaldo verificado para IE0006TUI4G7, que el proveedor principal no identifica.
+
 v0.5.1 - Alta simplificada de Base 2026
 
 No requiere SQL nuevo ni cambios en Supabase. Publica los archivos del parche en la raiz del repositorio de GitHub.

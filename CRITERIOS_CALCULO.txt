@@ -1,4 +1,4 @@
-MI CARTERA v0.5.1 - CRITERIOS DE CALCULO
+MI CARTERA v0.5.2 - CRITERIOS DE CALCULO
 
 1. Posicion actual
    Participaciones actuales = suma de shares_delta de operaciones completadas de la misma cuenta, ISIN y cotizacion.

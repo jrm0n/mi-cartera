@@ -1,3 +1,9 @@
+v0.5.2 - 2026-09-22
+- Repara automáticamente el error 23503/instrument_listings_isin_fkey: crea primero el registro base del fondo y repite la identificación.
+- La reparación es general y cubre cualquier ISIN afectado, incluidos ES0114868039, IE00BM95B621, LU1223083087, ES0165265002 y LU2286300988.
+- Añade respaldo verificado para IE0006TUI4G7 cuando el proveedor principal devuelve INSTRUMENT_NOT_FOUND.
+- Mantiene el alta simplificada de Base 2026 y no requiere una migración SQL nueva.
+
 v0.5.1 - 2026-09-20
 - "Base 2026" sólo pide la entidad, el ISIN, la base a 01/01/2026 y las participaciones actuales.
 - La fecha, el VL/precio y el importe técnico se completan automáticamente con la última cotización disponible.
