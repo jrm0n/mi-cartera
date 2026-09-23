@@ -1,4 +1,4 @@
-const APP_VERSION='0.7.1';
+const APP_VERSION='0.7.2';
 const VALIDATION_TOLERANCE_PCT=0.1;
 const DATA_SCHEMA_VERSION=10;
 const CACHE_KEY='mi_cartera_cloud_cache_v2';
@@ -219,6 +219,16 @@ async function rest(path,options={},retry=true){
  if(!res.ok){const msg=data?.message||data?.hint||data?.details||`HTTP ${res.status}`;throw new Error(msg)}return data;
 }
 const select=(table,query='')=>rest(`${table}${query?'?'+query:''}`);
+async function selectPaged(table,query='',pageSize=1000,maxRows=50000){
+ const rows=[];
+ for(let offset=0;offset<maxRows;offset+=pageSize){
+  const batch=await rest(`${table}${query?'?'+query:''}`,{headers:{Range:`${offset}-${offset+pageSize-1}`}});
+  if(!Array.isArray(batch)||!batch.length)break;
+  rows.push(...batch);
+  if(batch.length<pageSize)break;
+ }
+ return rows;
+}
 const insert=(table,body)=>rest(table,{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify(body)});
 const patch=(table,query,body)=>rest(`${table}?${query}`,{method:'PATCH',headers:{Prefer:'return=representation'},body:JSON.stringify(body)});
 const remove=(table,query)=>rest(`${table}?${query}`,{method:'DELETE',headers:{Prefer:'return=representation'}});
@@ -440,9 +450,9 @@ async function syncFromCloud(showNotice=false){
      select('transfers','select=id,from_account_id,from_isin,to_account_id,to_isin,request_date,settlement_date,out_execution_date,in_execution_date,amount,shares_out,shares_in,nav_out,nav_in,status,validation_status,out_reference_nav,in_reference_nav,out_difference_pct,in_difference_pct,notes,created_at,updated_at&order=request_date.desc,created_at.desc'),
      select('recurring_operations','select=id,portfolio_id,account_id,isin,listing_symbol,amount,start_date,day_of_month,interval_months,end_date,active,created_at,updated_at&order=start_date.desc,created_at.desc'),
      select('funds','select=isin,name,manager,currency,theme,subtheme,benchmark,active,category,category_source,category_fetched_at,data_provider,provider_symbol,instrument_type,metadata_source,metadata_fetched_at'),
-     select('fund_navs','select=isin,nav_date,nav,currency,source,fetched_at&order=nav_date.desc&limit=20000'),
+     selectPaged('fund_navs','select=isin,nav_date,nav,currency,source,fetched_at&order=nav_date.desc'),
      select('instrument_listings','select=provider_symbol,isin,ticker,exchange_code,exchange_name,currency,instrument_type,is_primary,source,fetched_at&order=isin,exchange_name,ticker'),
-     select('listing_prices','select=provider_symbol,price_date,price,currency,source,fetched_at,is_approximate,proxy_symbol,calibration_factor,approximation_method,calibration_date&order=price_date.desc&limit=30000')
+     selectPaged('listing_prices','select=provider_symbol,price_date,price,currency,source,fetched_at,is_approximate,proxy_symbol,calibration_factor,approximation_method,calibration_date&order=price_date.desc')
    ]);
    state.portfolios=portfolios||[];const remembered=localStorage.getItem(ACTIVE_PORTFOLIO_KEY),wanted=state.portfolios.find(p=>p.id===remembered)||state.portfolios.find(p=>p.id===state.activePortfolioId)||state.portfolios.find(p=>p.is_default)||state.portfolios[0];if(!wanted)throw new Error('No se pudo crear la cartera inicial.');state.activePortfolioId=wanted.id;localStorage.setItem(ACTIVE_PORTFOLIO_KEY,wanted.id);
    cloudSnapshot={accounts:accounts||[],ops:ops||[],transfers:transfers||[],recurringRules:recurringRules||[],funds:funds||[],navs:navs||[],listings:listings||[],listingPrices:listingPrices||[]};state.funds={};state.listings={};
@@ -488,6 +498,7 @@ function renderAll(){renderPortfolioSelector();renderPeriodSelectors();renderHom
 
 function rangeDate(range){const d=new Date();if(range==='M1')d.setMonth(d.getMonth()-1);else if(range==='M3')d.setMonth(d.getMonth()-3);else if(range==='M6')d.setMonth(d.getMonth()-6);else if(range==='Y1')d.setFullYear(d.getFullYear()-1);else if(range==='Y3')d.setFullYear(d.getFullYear()-3);else if(range==='YTD')return new Date(Date.UTC(d.getUTCFullYear(),0,1));else return new Date(0);return d}
 function seriesRowsFor(p,range){const rows=p.listingSymbol?(listingHistory[p.listingSymbol]||[]):(navHistory[p.isin]||[]);const target=rangeDate(range).getTime();return rows.filter(r=>new Date(r.nav_date+'T00:00:00Z').getTime()>=target&&Number.isFinite(+r.nav)&&+r.nav>0)}
+function chartRangeIsComplete(rows,range){if(range==='MAX')return rows.length>1;if(rows.length<2)return false;const target=rangeDate(range).getTime(),first=new Date(rows[0].nav_date+'T00:00:00Z').getTime();return Number.isFinite(first)&&first>=target&&(first-target)/86400000<=14}
 function chartMetaFor(rows){const approx=rows.find(r=>r.isApproximate);if(!approx)return{approximate:false,label:'Histórico exacto',detail:'Datos numéricos guardados en Supabase'};const l=approx.proxySymbol?state.listings?.[approx.proxySymbol]:null;const proxy=l?listingLabel(l):(approx.proxySymbol||'otro mercado');const factor=Number.isFinite(+approx.calibrationFactor)?` · factor ${Number(approx.calibrationFactor).toFixed(5).replace('.',',')}`:'';const date=approx.calibrationDate?` · calibrado ${new Date(approx.calibrationDate+'T00:00:00').toLocaleDateString('es-ES')}`:'';return{approximate:true,label:`Histórico aproximado · proxy ${proxy}`,detail:`Mismo ISIN ajustado por proporcionalidad${factor}${date}. El precio actual sigue siendo el real del mercado seleccionado.`}}
 function drawChart(p,range){
  const c=document.getElementById('fundChart');if(!c)return;const rows=seriesRowsFor(p,range),retEl=document.getElementById('rangeReturn'),sourceEl=document.getElementById('chartSource'),noteEl=document.getElementById('chartNote');const metaInfo=chartMetaFor(rows);if(sourceEl)sourceEl.textContent=metaInfo.label;if(noteEl)noteEl.textContent=metaInfo.detail;
@@ -495,7 +506,7 @@ function drawChart(p,range){
  if(rows.length<2){retEl.textContent='N/D';ctx.fillStyle=getComputedStyle(document.body).getPropertyValue('--muted').trim();ctx.font='600 13px system-ui';ctx.textAlign='center';ctx.fillText('Sin histórico numérico suficiente',w/2,h/2);return}
  const values=rows.map(r=>+r.nav),min0=Math.min(...values),max0=Math.max(...values),span=Math.max(max0-min0,Math.abs(max0)*0.015,0.01),min=min0-span*.12,max=max0+span*.12;const left=54,right=14,top=18,bottom=34,plotW=w-left-right,plotH=h-top-bottom;const css=getComputedStyle(document.body),grid=css.getPropertyValue('--line').trim(),muted=css.getPropertyValue('--muted').trim();ctx.font='11px system-ui';ctx.textAlign='right';ctx.textBaseline='middle';for(let i=0;i<4;i++){const y=top+plotH*i/3,val=max-(max-min)*i/3;ctx.strokeStyle=grid;ctx.lineWidth=1;ctx.setLineDash([]);ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(w-right,y);ctx.stroke();ctx.fillStyle=muted;ctx.fillText(formatNumberES(val,2,2),left-7,y)}
  const xFor=i=>left+plotW*i/(rows.length-1),yFor=v=>top+(max-v)/(max-min)*plotH;const rising=values.at(-1)>=values[0],line=rising?'#0a8f4f':'#c43232';ctx.strokeStyle=line;ctx.lineWidth=2.3;ctx.lineJoin='round';ctx.lineCap='round';ctx.setLineDash(metaInfo.approximate?[7,4]:[]);ctx.beginPath();rows.forEach((r,i)=>{const x=xFor(i),y=yFor(+r.nav);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke();ctx.setLineDash([]);
- const last=rows.at(-1);ctx.fillStyle=line;ctx.beginPath();ctx.arc(xFor(rows.length-1),yFor(+last.nav),3.7,0,Math.PI*2);ctx.fill();ctx.fillStyle=muted;ctx.font='11px system-ui';ctx.textBaseline='top';ctx.textAlign='left';ctx.fillText(new Date(rows[0].nav_date+'T00:00:00').toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit'}),left,h-bottom+10);ctx.textAlign='right';ctx.fillText(new Date(last.nav_date+'T00:00:00').toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit'}),w-right,h-bottom+10);const ri={value:(values.at(-1)/values[0]-1)*100,approximate:metaInfo.approximate};retEl.textContent=returnText(ri);
+ const last=rows.at(-1);ctx.fillStyle=line;ctx.beginPath();ctx.arc(xFor(rows.length-1),yFor(+last.nav),3.7,0,Math.PI*2);ctx.fill();ctx.fillStyle=muted;ctx.font='11px system-ui';ctx.textBaseline='top';ctx.textAlign='left';ctx.fillText(new Date(rows[0].nav_date+'T00:00:00').toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit'}),left,h-bottom+10);ctx.textAlign='right';ctx.fillText(new Date(last.nav_date+'T00:00:00').toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit'}),w-right,h-bottom+10);const complete=chartRangeIsComplete(rows,range),ri={value:complete?(values.at(-1)/values[0]-1)*100:null,approximate:metaInfo.approximate};retEl.textContent=returnText(ri);if(!complete&&noteEl)noteEl.textContent=`Histórico incompleto para ${range==='YTD'?'el año en curso':'el periodo seleccionado'}; no se calcula una rentabilidad parcial como si cubriera todo el periodo.`;
 }
 function openDetail(id){
  const p=state.positions.find(x=>x.id===id);if(!p)return;const m=meta(p),val=Number.isFinite(+p.currentValue)?+p.currentValue:posValue(p),tri=totalReturnInfo(p),gain=tri.pnl,ret=tri.value,personalYear=positionPeriodReturnInfo(p,'2026'),yr=assetPeriodReturnInfo(p,String(new Date().getFullYear())),priceCurrency=state.listings?.[p.listingSymbol]?.currency||m.currency||'EUR',totalText=p.historicalCostKnown===false?'N/D · coste anterior desconocido':`${gain>=0?'+':''}${eur(gain)} · ${pct(ret)}`,fxText=String(p.navCurrency||priceCurrency).toUpperCase()==='EUR'?'':(p.eurRate?`<br><strong>Conversión:</strong> 1 ${esc(p.navCurrency)} = ${formatNumberES(p.eurRate,4,6)} EUR${p.fxDate?` · ${esc(p.fxDate)}`:''}${p.fxSource?` · ${esc(p.fxSource)}`:''}`:'<br><strong>Conversión a EUR:</strong> no disponible');

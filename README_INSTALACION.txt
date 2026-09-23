@@ -1,4 +1,4 @@
-v0.7.1 - Actualización robusta de precios y VL
+v0.7.2 - Fuentes generales y rentabilidad YTD completa
 
 No requiere SQL nuevo.
 
@@ -10,9 +10,17 @@ Orden de instalación:
 4. Publica app.js, index.html, config.js, sw.js y version.json en la raíz del repositorio de GitHub.
 5. Abre la app, fuerza una recarga y pulsa "Actualizar cartera".
 
-La corrección no está programada para un único ISIN. El resolutor incorpora adaptadores por gestora, compara fechas y conserva siempre el dato más reciente. En esta versión se añade la fuente oficial de La Financière de l'Echiquier para sus fondos. Los demás fondos continúan con EODHD y, si su último dato supera cinco días naturales, la app los identifica como atrasados. También se priorizan los instrumentos con precios más antiguos al aplicar el límite de 18 actualizaciones.
+El resolutor consulta el VL más reciente por ISIN en VDOS/Quefondos para fondos tradicionales de cualquier gestora compatible, además de EODHD y de las fuentes oficiales específicas disponibles. Compara fechas y conserva siempre el dato más reciente; a igualdad de fecha, la fuente oficial tiene prioridad.
+
+La app descarga el histórico de Supabase por páginas de 1.000 registros. Esto evita que el límite de filas del API recorte el principio del año y convierta una evolución parcial desde junio en una supuesta rentabilidad YTD. Si aun así falta el inicio del periodo, muestra N/D en vez de un porcentaje parcial engañoso.
 
 La migración 015_recurring_operations_v0.7.0.sql sólo es necesaria si aún no instalaste la versión 0.7.0.
+
+---
+
+v0.7.1 - Actualización robusta de precios y VL
+
+No requiere SQL nuevo. Añadió la fuente oficial de La Financière de l'Echiquier y el aviso de cotizaciones atrasadas.
 
 ---
 

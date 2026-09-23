@@ -88,6 +88,16 @@ function cleanField(value: string | null, max = 240) {
   return v.slice(0, max);
 }
 
+function parseEuropeanNumber(value: string | null) {
+  if (!value) return null;
+  const compact = value.replace(/\s/g, "");
+  const normalized = compact.includes(",")
+    ? compact.replace(/\./g, "").replace(",", ".")
+    : compact;
+  const n = Number(normalized);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function finectSlug(name: string) {
   return String(name || "")
     .normalize("NFD")
@@ -97,24 +107,32 @@ function finectSlug(name: string) {
 }
 
 async function fetchVdos(isin: string) {
-  // The mobile fiche is simpler and exposes Gestora / Categoría VDOS as plain text.
+  // The mobile fiche exposes metadata and the latest published NAV as plain text.
   const sourceUrl = `https://www.quefondos.com/m/es/fondos/ficha/?isin=${encodeURIComponent(isin)}`;
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.4.4; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.7.2; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
     });
-    if (!response.ok) return { sourceUrl, ok: false, status: response.status, category: null, manager: null, benchmark: null };
+    if (!response.ok) return { sourceUrl, ok: false, status: response.status, category: null, manager: null, benchmark: null, nav: null, navDate: null, navCurrency: null };
     const text = decodeHtml(await response.text());
     const category = cleanField(between(text, /Categoría VDOS\s*:?\s*/i, /Rating VDOS\s*:?/i));
     const manager = cleanField(between(text, /Gestora\s*:?\s*/i, /Categoría VDOS\s*:?/i));
     const benchmark = cleanField(between(text, /Referencia\s*:?\s*/i, /Última valoración|Valor liquidativo|Rentabilidades|Política de inversión/i));
-    return { sourceUrl, ok: !!(category || manager || benchmark), status: response.status, category, manager, benchmark };
+    const valuation = between(text, /Última valoración\s*/i, /Evolución histórica|Rentabilidades acumuladas|Rentabilidades anuales/i) ?? text;
+    const navMatch = valuation.match(/Valor liquidativo\s*:?\s*([0-9][0-9.\s]*(?:,[0-9]+)?|[0-9]+(?:\.[0-9]+)?)\s*([A-Z]{3})/i);
+    const dateMatch = valuation.match(/\bFecha\s*:?\s*(\d{1,2})[\/.-](\d{1,2})[\/.-](20\d{2})\b/i);
+    const nav = parseEuropeanNumber(navMatch?.[1] ?? null);
+    const navCurrency = navMatch?.[2]?.toUpperCase() ?? null;
+    const navDate = dateMatch
+      ? `${dateMatch[3]}-${String(dateMatch[2]).padStart(2,"0")}-${String(dateMatch[1]).padStart(2,"0")}`
+      : null;
+    return { sourceUrl:response.url || sourceUrl, ok: !!(category || manager || benchmark || (nav && navDate)), status: response.status, category, manager, benchmark, nav, navDate, navCurrency };
   } catch (error) {
-    return { sourceUrl, ok: false, error: String(error), category: null, manager: null, benchmark: null };
+    return { sourceUrl, ok: false, error: String(error), category: null, manager: null, benchmark: null, nav: null, navDate: null, navCurrency: null };
   }
 }
 
@@ -201,7 +219,7 @@ async function fetchLfdeOfficialSeries(isin: string): Promise<OfficialSeriesResu
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.7.1; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.7.2; personal portfolio resolver)",
         "Accept": "text/csv,text/plain,application/octet-stream,*/*",
         "Cache-Control": "no-cache",
       },
@@ -712,8 +730,9 @@ Deno.serve(async (req: Request) => {
     const nowIso=new Date().toISOString();
 
     let category=existing?.category??null, categorySource=existing?.category_source??null, manager=existing?.manager??null, benchmark=existing?.benchmark??null;
-    let vdos:any={ok:false,sourceUrl:null,category:null,manager:null,benchmark:null}; let finect:any={ok:false,sourceUrl:null,category:null,manager:null,benchmark:null};
-    if(forceMetadata||!category||!manager||!benchmark){
+    let vdos:any={ok:false,sourceUrl:null,category:null,manager:null,benchmark:null,nav:null,navDate:null,navCurrency:null}; let finect:any={ok:false,sourceUrl:null,category:null,manager:null,benchmark:null};
+    const needsGenericFundQuote=!requiresListing&&(includeHistory||refreshQuote);
+    if(forceMetadata||!category||!manager||!benchmark||needsGenericFundQuote){
       vdos=await fetchVdos(isin); if(vdos.category){category=vdos.category;categorySource="VDOS/Quefondos"} if(!manager&&vdos.manager)manager=vdos.manager;if(!benchmark&&vdos.benchmark)benchmark=vdos.benchmark;
       if(!category||!manager||!benchmark){ finect=await fetchFinect(isin,name||isin); if(!category&&finect.category){category=finect.category;categorySource="Finect (datos Morningstar)"} if(!manager&&finect.manager)manager=finect.manager;if(!benchmark&&finect.benchmark)benchmark=finect.benchmark; }
     }
@@ -730,6 +749,9 @@ Deno.serve(async (req: Request) => {
     const officialRows = officialSeries.ok
       ? (includeHistory ? officialSeries.rows : officialSeries.rows.slice(0, 30))
       : [];
+    const vdosQuote = Number(vdos?.nav)>0 && /^\d{4}-\d{2}-\d{2}$/.test(String(vdos?.navDate||""))
+      ? { date:String(vdos.navDate), price:Number(vdos.nav), currency:String(vdos.navCurrency||masterCurrency).toUpperCase(), source:"VDOS/Quefondos · última valoración" }
+      : null;
 
     if(selectedListing && (includeHistory || refreshQuote)){
       const targetIsTradegate=isTradegateListing(selectedListing);
@@ -814,8 +836,8 @@ Deno.serve(async (req: Request) => {
       }else{
         const exactHistory=await ensureListingHistory(selectedListing,includeHistory,refreshQuote);
         if(!exactHistory.ok){
-          if(includeHistory) return json({ok:false,error:"EODHD_HISTORY_FAILED",status:exactHistory.status,details:exactHistory.details,fund},502);
-          historyReason="QUOTE_REFRESH_FAILED";
+          if(includeHistory&&!vdosQuote) return json({ok:false,error:"EODHD_HISTORY_FAILED",status:exactHistory.status,details:exactHistory.details,fund},502);
+          historyReason=vdosQuote?"EODHD_FAILED_VDOS_AVAILABLE":"QUOTE_REFRESH_FAILED";
         }else{
           historyFetched=exactHistory.fetched;historyRowsInserted=exactHistory.inserted;
         }
@@ -841,6 +863,38 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // Generic fallback for traditional funds. VDOS publishes the latest NAV,
+    // currency and date for many ISINs from different management companies.
+    // An official-manager value keeps priority when both sources have the same date.
+    if(!requiresListing && vdosQuote && officialRows[0]?.date!==vdosQuote.date){
+      if(selectedListing){
+        await db(`listing_prices?on_conflict=provider_symbol,price_date`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({
+          provider_symbol:selectedListing.provider_symbol,
+          price_date:vdosQuote.date,
+          price:vdosQuote.price,
+          currency:vdosQuote.currency,
+          source:vdosQuote.source,
+          fetched_at:nowIso,
+          is_approximate:false,
+          proxy_symbol:null,
+          calibration_factor:null,
+          approximation_method:null,
+          calibration_date:null,
+        })});
+      }
+      await db(`fund_navs?on_conflict=isin,nav_date`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({
+        isin,
+        nav_date:vdosQuote.date,
+        nav:vdosQuote.price,
+        currency:vdosQuote.currency,
+        source:vdosQuote.source,
+        fetched_at:nowIso,
+      })});
+      historyFetched=true;
+      historyRowsInserted+=1;
+      if(!historyReason||historyReason==="QUOTE_REFRESH_FAILED"||historyReason==="EODHD_FAILED_VDOS_AVAILABLE") historyReason="VDOS_LATEST_NAV";
+    }
+
     if(!requiresListing&&selectedListing){
       const prices=await db(`listing_prices?provider_symbol=eq.${encodeURIComponent(selectedListing.provider_symbol)}&select=price_date,price,currency,source,fetched_at&order=price_date.asc&limit=2000`);
       const navRows=(Array.isArray(prices)?prices:[]).map((r:any)=>({isin,nav_date:r.price_date,nav:Number(r.price),currency:r.currency||masterCurrency,source:r.source,fetched_at:r.fetched_at||nowIso}));
@@ -861,6 +915,8 @@ Deno.serve(async (req: Request) => {
       official_source_available:officialSeries.ok,
       official_source_url:officialSeries.sourceUrl,
       official_source_reason:officialSeries.ok?null:officialSeries.reason??null,
+      generic_fallback_available:!!vdosQuote,
+      generic_fallback_url:vdos.sourceUrl??null,
     };
 
     return json({ok:true,isin,fund:{isin,name:fund?.name??name,manager:fund?.manager??manager??null,currency:fund?.currency??masterCurrency,category:fund?.category??category??null,category_source:fund?.category_source??categorySource??null,benchmark:fund?.benchmark??benchmark??null,provider:"EODHD",provider_symbol:requiresListing?null:(selectedListing?.provider_symbol??null),instrument_type:fund?.instrument_type??instrumentType??null,metadata_source:"EODHD Search API"},requires_listing:requiresListing,listings:listings.map((l:any)=>({provider_symbol:l.provider_symbol,ticker:l.ticker,exchange_code:l.exchange_code,exchange_name:l.exchange_name||exchangeDisplayName(l.exchange_code),currency:l.currency,instrument_type:l.instrument_type,is_primary:l.is_primary===true,source:l.source,valuation_source_name:l.valuation_source_name??null})),selected_listing:selectedListing?{provider_symbol:selectedListing.provider_symbol,ticker:selectedListing.ticker,exchange_code:selectedListing.exchange_code,exchange_name:selectedListing.exchange_name||exchangeDisplayName(selectedListing.exchange_code),currency:selectedListing.currency,source:selectedListing.source,valuation_source_name:selectedListing.valuation_source_name??null}:null,latest_nav:latest,quote_status:quoteStatus,history:{requested:includeHistory,fetched:historyFetched,rows_inserted:historyRowsInserted,reason:historyReason,approximate:historyApproximate,proxy:proxyInfo},sources:{identity_nav:latest?.source??(selectedListing&&String(selectedListing.provider_symbol).startsWith("TRADEGATE:")?"Tradegate Exchange":"EODHD"),official_nav_url:officialSeries.sourceUrl,category:fund?.category_source??categorySource??null,manager:vdos.manager?"VDOS/Quefondos":(finect.manager?"Finect":null),benchmark:vdos.benchmark?"VDOS/Quefondos":(finect.benchmark?"Finect (datos Morningstar)":null),vdos_url:vdos.sourceUrl,finect_url:finect.sourceUrl,tradegate_url:tradegate.sourceUrl??null,history_proxy:proxyInfo}});
