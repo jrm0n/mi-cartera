@@ -176,6 +176,87 @@ function parseDecimal(value: string | null) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+type OfficialSeriesRow = { date: string; price: number };
+type OfficialSeriesResult = {
+  ok: boolean;
+  source: string | null;
+  sourceUrl: string | null;
+  currency: string | null;
+  rows: OfficialSeriesRow[];
+  reason?: string;
+  status?: number;
+  error?: string;
+};
+
+/*
+ * Official NAV adapters.
+ *
+ * This is deliberately based on the manager/name, not on one particular ISIN.
+ * Adding support for another management company only requires a new adapter;
+ * the freshness comparison and database writes below remain unchanged.
+ */
+async function fetchLfdeOfficialSeries(isin: string): Promise<OfficialSeriesResult> {
+  const source = "La Financière de l'Echiquier · histórico oficial";
+  const sourceUrl = `https://cdn.lfde.com/xml/${encodeURIComponent(isin)}.csv`;
+  try {
+    const response = await fetch(sourceUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.7.1; personal portfolio resolver)",
+        "Accept": "text/csv,text/plain,application/octet-stream,*/*",
+        "Cache-Control": "no-cache",
+      },
+      redirect: "follow",
+    });
+    if (!response.ok) return { ok:false, source, sourceUrl, currency:"EUR", rows:[], status:response.status, reason:"OFFICIAL_SOURCE_HTTP_ERROR" };
+
+    const lines = (await response.text())
+      .replace(/^\uFEFF/, "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (normalizeIsin(lines[0]) !== isin) {
+      return { ok:false, source, sourceUrl, currency:"EUR", rows:[], reason:"OFFICIAL_SOURCE_ISIN_MISMATCH" };
+    }
+
+    const headerIndex = lines.findIndex((line) => /^Date;Fonds(?:;|$)/i.test(line));
+    if (headerIndex < 0) return { ok:false, source, sourceUrl, currency:"EUR", rows:[], reason:"OFFICIAL_SOURCE_INVALID_FORMAT" };
+
+    const byDate = new Map<string, OfficialSeriesRow>();
+    for (const line of lines.slice(headerIndex + 1)) {
+      const cells = line.split(";");
+      const date = String(cells[0] ?? "").trim();
+      const price = parseDecimal(String(cells[1] ?? "").trim());
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !price) continue;
+      byDate.set(date, { date, price });
+    }
+    const rows = [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
+    if (!rows.length) return { ok:false, source, sourceUrl, currency:"EUR", rows:[], reason:"OFFICIAL_SOURCE_EMPTY" };
+    return { ok:true, source, sourceUrl:response.url || sourceUrl, currency:"EUR", rows };
+  } catch (error) {
+    return { ok:false, source, sourceUrl, currency:"EUR", rows:[], reason:"OFFICIAL_SOURCE_UNAVAILABLE", error:String(error) };
+  }
+}
+
+async function fetchOfficialFundSeries(input: {
+  isin: string;
+  name?: string | null;
+  manager?: string | null;
+}): Promise<OfficialSeriesResult> {
+  const identity = `${input.name ?? ""} ${input.manager ?? ""}`;
+  if (/\b(?:LFDE|Echiquier|Financi[eè]re de l['’ ]Echiquier)\b/i.test(identity)) {
+    return await fetchLfdeOfficialSeries(input.isin);
+  }
+  return { ok:false, source:null, sourceUrl:null, currency:null, rows:[], reason:"NO_OFFICIAL_ADAPTER" };
+}
+
+function calendarAgeDays(date: string | null | undefined) {
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const quote = new Date(`${date}T00:00:00Z`).getTime();
+  const today = new Date();
+  const utcToday = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  return Math.max(0, Math.floor((utcToday - quote) / 86400000));
+}
+
 async function fetchTradegate(isin: string) {
   const sourceUrl = `https://www.tradegatebsx.com/orderbuch.php?isin=${encodeURIComponent(isin)}&lang=en`;
   try {
@@ -643,6 +724,12 @@ Deno.serve(async (req: Request) => {
 
     let historyFetched=false,historyRowsInserted=0,historyReason:string|null=null;
     let historyApproximate=false, proxyInfo:any=null;
+    const officialSeries:OfficialSeriesResult = (!requiresListing && (includeHistory || refreshQuote))
+      ? await fetchOfficialFundSeries({ isin, name:fund?.name ?? name, manager:fund?.manager ?? manager })
+      : { ok:false, source:null, sourceUrl:null, currency:null, rows:[], reason:"NOT_REQUESTED" };
+    const officialRows = officialSeries.ok
+      ? (includeHistory ? officialSeries.rows : officialSeries.rows.slice(0, 30))
+      : [];
 
     if(selectedListing && (includeHistory || refreshQuote)){
       const targetIsTradegate=isTradegateListing(selectedListing);
@@ -706,6 +793,24 @@ Deno.serve(async (req: Request) => {
             }
           }
         }
+      }else if(officialRows.length){
+        const rows=officialRows.map((x)=>({
+          provider_symbol:selectedListing.provider_symbol,
+          price_date:x.date,
+          price:x.price,
+          currency:officialSeries.currency||selectedListing.currency||masterCurrency,
+          source:officialSeries.source,
+          fetched_at:nowIso,
+          is_approximate:false,
+          proxy_symbol:null,
+          calibration_factor:null,
+          approximation_method:null,
+          calibration_date:null,
+        }));
+        for(let i=0;i<rows.length;i+=250) await db(`listing_prices?on_conflict=provider_symbol,price_date`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(rows.slice(i,i+250))});
+        historyFetched=true;
+        historyRowsInserted=rows.length;
+        historyReason="OFFICIAL_MANAGER_HISTORY";
       }else{
         const exactHistory=await ensureListingHistory(selectedListing,includeHistory,refreshQuote);
         if(!exactHistory.ok){
@@ -714,6 +819,25 @@ Deno.serve(async (req: Request) => {
         }else{
           historyFetched=exactHistory.fetched;historyRowsInserted=exactHistory.inserted;
         }
+      }
+    }
+
+    // Traditional funds without a usable listing can still be refreshed directly
+    // from an official manager series. The newest date wins naturally in fund_navs.
+    if(!requiresListing && officialRows.length){
+      const directNavRows=officialRows.map((x)=>({
+        isin,
+        nav_date:x.date,
+        nav:x.price,
+        currency:officialSeries.currency||masterCurrency,
+        source:officialSeries.source,
+        fetched_at:nowIso,
+      }));
+      for(let i=0;i<directNavRows.length;i+=250) await db(`fund_navs?on_conflict=isin,nav_date`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(directNavRows.slice(i,i+250))});
+      if(!selectedListing){
+        historyFetched=true;
+        historyRowsInserted=directNavRows.length;
+        historyReason="OFFICIAL_MANAGER_HISTORY";
       }
     }
 
@@ -727,6 +851,18 @@ Deno.serve(async (req: Request) => {
     if(selectedListing){ const rows=await db(`listing_prices?provider_symbol=eq.${encodeURIComponent(selectedListing.provider_symbol)}&select=price_date,price,currency,source,fetched_at,is_approximate,proxy_symbol,calibration_factor,approximation_method,calibration_date&order=price_date.desc,is_approximate.asc&limit=1`); const r=Array.isArray(rows)?rows[0]??null:null;if(r)latest={date:r.price_date,nav:Number(r.price),currency:r.currency,source:r.source,fetched_at:r.fetched_at,is_approximate:r.is_approximate===true,proxy_symbol:r.proxy_symbol??null,calibration_factor:r.calibration_factor==null?null:Number(r.calibration_factor),approximation_method:r.approximation_method??null}; }
     else if(!requiresListing){ const rows=await db(`fund_navs?isin=eq.${encodeURIComponent(isin)}&select=nav_date,nav,currency,source,fetched_at&order=nav_date.desc&limit=1`);const r=Array.isArray(rows)?rows[0]??null:null;if(r)latest={date:r.nav_date,nav:Number(r.nav),currency:r.currency,source:r.source,fetched_at:r.fetched_at}; }
 
-    return json({ok:true,isin,fund:{isin,name:fund?.name??name,manager:fund?.manager??manager??null,currency:fund?.currency??masterCurrency,category:fund?.category??category??null,category_source:fund?.category_source??categorySource??null,benchmark:fund?.benchmark??benchmark??null,provider:"EODHD",provider_symbol:requiresListing?null:(selectedListing?.provider_symbol??null),instrument_type:fund?.instrument_type??instrumentType??null,metadata_source:"EODHD Search API"},requires_listing:requiresListing,listings:listings.map((l:any)=>({provider_symbol:l.provider_symbol,ticker:l.ticker,exchange_code:l.exchange_code,exchange_name:l.exchange_name||exchangeDisplayName(l.exchange_code),currency:l.currency,instrument_type:l.instrument_type,is_primary:l.is_primary===true,source:l.source,valuation_source_name:l.valuation_source_name??null})),selected_listing:selectedListing?{provider_symbol:selectedListing.provider_symbol,ticker:selectedListing.ticker,exchange_code:selectedListing.exchange_code,exchange_name:selectedListing.exchange_name||exchangeDisplayName(selectedListing.exchange_code),currency:selectedListing.currency,source:selectedListing.source,valuation_source_name:selectedListing.valuation_source_name??null}:null,latest_nav:latest,history:{requested:includeHistory,fetched:historyFetched,rows_inserted:historyRowsInserted,reason:historyReason,approximate:historyApproximate,proxy:proxyInfo},sources:{identity_nav:selectedListing&&String(selectedListing.provider_symbol).startsWith("TRADEGATE:")?"Tradegate Exchange":"EODHD",category:fund?.category_source??categorySource??null,manager:vdos.manager?"VDOS/Quefondos":(finect.manager?"Finect":null),benchmark:vdos.benchmark?"VDOS/Quefondos":(finect.benchmark?"Finect (datos Morningstar)":null),vdos_url:vdos.sourceUrl,finect_url:finect.sourceUrl,tradegate_url:tradegate.sourceUrl??null,history_proxy:proxyInfo}});
+    const quoteAgeDays=calendarAgeDays(latest?.date);
+    const quoteStatus={
+      date:latest?.date??null,
+      age_days:quoteAgeDays,
+      stale:quoteAgeDays==null?true:quoteAgeDays>5,
+      max_age_days:5,
+      source:latest?.source??null,
+      official_source_available:officialSeries.ok,
+      official_source_url:officialSeries.sourceUrl,
+      official_source_reason:officialSeries.ok?null:officialSeries.reason??null,
+    };
+
+    return json({ok:true,isin,fund:{isin,name:fund?.name??name,manager:fund?.manager??manager??null,currency:fund?.currency??masterCurrency,category:fund?.category??category??null,category_source:fund?.category_source??categorySource??null,benchmark:fund?.benchmark??benchmark??null,provider:"EODHD",provider_symbol:requiresListing?null:(selectedListing?.provider_symbol??null),instrument_type:fund?.instrument_type??instrumentType??null,metadata_source:"EODHD Search API"},requires_listing:requiresListing,listings:listings.map((l:any)=>({provider_symbol:l.provider_symbol,ticker:l.ticker,exchange_code:l.exchange_code,exchange_name:l.exchange_name||exchangeDisplayName(l.exchange_code),currency:l.currency,instrument_type:l.instrument_type,is_primary:l.is_primary===true,source:l.source,valuation_source_name:l.valuation_source_name??null})),selected_listing:selectedListing?{provider_symbol:selectedListing.provider_symbol,ticker:selectedListing.ticker,exchange_code:selectedListing.exchange_code,exchange_name:selectedListing.exchange_name||exchangeDisplayName(selectedListing.exchange_code),currency:selectedListing.currency,source:selectedListing.source,valuation_source_name:selectedListing.valuation_source_name??null}:null,latest_nav:latest,quote_status:quoteStatus,history:{requested:includeHistory,fetched:historyFetched,rows_inserted:historyRowsInserted,reason:historyReason,approximate:historyApproximate,proxy:proxyInfo},sources:{identity_nav:latest?.source??(selectedListing&&String(selectedListing.provider_symbol).startsWith("TRADEGATE:")?"Tradegate Exchange":"EODHD"),official_nav_url:officialSeries.sourceUrl,category:fund?.category_source??categorySource??null,manager:vdos.manager?"VDOS/Quefondos":(finect.manager?"Finect":null),benchmark:vdos.benchmark?"VDOS/Quefondos":(finect.benchmark?"Finect (datos Morningstar)":null),vdos_url:vdos.sourceUrl,finect_url:finect.sourceUrl,tradegate_url:tradegate.sourceUrl??null,history_proxy:proxyInfo}});
   } catch(error){ console.error(error); return json({ok:false,error:"UNEXPECTED_ERROR",details:String(error)},500); }
 });

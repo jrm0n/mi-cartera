@@ -1,4 +1,4 @@
-const APP_VERSION='0.7.0';
+const APP_VERSION='0.7.1';
 const VALIDATION_TOLERANCE_PCT=0.1;
 const DATA_SCHEMA_VERSION=10;
 const CACHE_KEY='mi_cartera_cloud_cache_v2';
@@ -283,7 +283,7 @@ async function resolveFund(isin,includeHistory=false,forceMetadata=false,listing
  if(!result&&instrumentNotFound(lastError))result=await verifiedFallbackResult(isin);
  if(!result)throw lastError||new Error('No se pudo identificar el instrumento.');
  const f=result?.fund||{};const old=state.funds?.[isin]||{};const latest=result?.requires_listing?null:(result?.latest_nav||old.latest_nav||null);
- state.funds[isin]={...old,...f,data_provider:f.provider||old.data_provider,provider_symbol:result?.requires_listing?null:(f.provider_symbol||old.provider_symbol),metadata_source:f.metadata_source||old.metadata_source,theme:(old.theme&&old.theme!=='Sin clasificar')?old.theme:(f.category||old.category||'Sin clasificar'),latest_nav:latest,sources:result?.sources||old.sources||null,requires_listing:!!result?.requires_listing};
+ state.funds[isin]={...old,...f,data_provider:f.provider||old.data_provider,provider_symbol:result?.requires_listing?null:(f.provider_symbol||old.provider_symbol),metadata_source:f.metadata_source||old.metadata_source,theme:(old.theme&&old.theme!=='Sin clasificar')?old.theme:(f.category||old.category||'Sin clasificar'),latest_nav:latest,quote_status:result?.quote_status||old.quote_status||null,sources:result?.sources||old.sources||null,requires_listing:!!result?.requires_listing};
  state.listings=state.listings||{};for(const l of result?.listings||[])state.listings[l.provider_symbol]={...state.listings[l.provider_symbol],...l,isin};
  saveCache();return result;
 }
@@ -548,7 +548,8 @@ function paintResolvedFund(isin,result=null){
  renderListingSelector(result||{requires_listing:m.requires_listing,listings:Object.values(state.listings||{}).filter(l=>l.isin===isin)});
  if(n)n.value=m.name||isin;if(c)c.value=m.category||'';if(g)g.value=m.manager||'';if(b)b.value=m.benchmark||'';if(v)v.value=latest&&Number.isFinite(+latest.nav)?priceNumber(+latest.nav)+' '+(latest.currency||m.currency||''):'';if(d)d.value=latest?.date?new Date(latest.date+'T00:00:00').toLocaleDateString('es-ES'):'';if(src)src.value=latest?.source||'';
  const selected=result?.selected_listing||null;const marketLine=selected?`<br>Cotización: ${esc(listingLabel(selected))}`:(result?.requires_listing?'<br><strong>Selecciona el mercado/bolsa de tu posición.</strong> El precio depende de esa cotización.':'');
- if(info)info.innerHTML=`<strong>${esc(m.name||isin)}</strong><br>Tipo: ${esc(m.instrument_type||'Sin datos')} · Categoría: ${esc(m.category||'Sin datos')} · Divisa base: ${esc(m.currency||'Sin datos')}${m.manager?`<br>Gestora: ${esc(m.manager)}`:''}${m.benchmark?`<br>Benchmark: ${esc(m.benchmark)}`:''}${marketLine}${latest?`<br>Precio/VL: ${esc(priceNumber(+latest.nav))} ${esc(latest.currency||m.currency||'')} · ${esc(new Date(latest.date+'T00:00:00').toLocaleDateString('es-ES'))} · ${esc(latest.source||'')}`:''}`;
+ const quoteStatus=result?.quote_status||m.quote_status||null;const staleLine=quoteStatus?.stale?`<br><strong>Dato atrasado:</strong> el último precio/VL tiene ${esc(String(quoteStatus.age_days??'?'))} días. La app conservará este valor hasta encontrar uno posterior.`:'';
+ if(info)info.innerHTML=`<strong>${esc(m.name||isin)}</strong><br>Tipo: ${esc(m.instrument_type||'Sin datos')} · Categoría: ${esc(m.category||'Sin datos')} · Divisa base: ${esc(m.currency||'Sin datos')}${m.manager?`<br>Gestora: ${esc(m.manager)}`:''}${m.benchmark?`<br>Benchmark: ${esc(m.benchmark)}`:''}${marketLine}${latest?`<br>Precio/VL: ${esc(priceNumber(+latest.nav))} ${esc(latest.currency||m.currency||'')} · ${esc(new Date(latest.date+'T00:00:00').toLocaleDateString('es-ES'))} · ${esc(latest.source||'')}`:''}${staleLine}`;
 }
 function lookupIsin(v,force=false,resetListing=false){
  const seq=++isinLookupSeq;const isin=String(v||'').trim().toUpperCase();const info=document.getElementById('isinInfo');if(resetListing)preferredListingSymbol=null;['fFundName','fCategory','fManager','fBenchmark','fLatestNav','fLatestNavDate','fNavSource'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});const lf=document.getElementById('listingField');if(lf&&resetListing)lf.style.display='none';clearTimeout(isinLookupTimer);
@@ -653,9 +654,10 @@ window.updatePendingTransfer=updatePendingTransfer;
 
 async function refreshAllMarketData(showNotice=true){
  const unique=[];const seen=new Set();for(const p of state.positions){const key=p.isin+'|'+(p.listingSymbol||'');if(seen.has(key))continue;seen.add(key);unique.push(p)}
- const limited=unique.slice(0,18);let ok=0,failed=0;setCloudStatus(`Actualizando mercados… 0/${limited.length}`);
- for(let i=0;i<limited.length;i++){const p=limited[i];try{await resolveFund(p.isin,true,false,p.listingSymbol||null,true);ok++}catch(err){console.warn('Refresh',p.isin,err);failed++}setCloudStatus(`Actualizando mercados… ${i+1}/${limited.length}`)}
- await syncFromCloud(false);localStorage.setItem(AUTO_REFRESH_KEY,new Date().toISOString());if(showNotice)alert(`Actualización terminada: ${ok} correctas${failed?`, ${failed} con error`:''}${unique.length>18?`. Se han limitado a 18 instrumentos para respetar el plan gratuito de datos.`:''}.`);return{ok,failed}
+ unique.sort((a,b)=>String(a.navDate||'').localeCompare(String(b.navDate||'')));
+ const limited=unique.slice(0,18);let ok=0,failed=0;const stale=[];setCloudStatus(`Actualizando mercados… 0/${limited.length}`);
+ for(let i=0;i<limited.length;i++){const p=limited[i];try{const result=await resolveFund(p.isin,true,false,p.listingSymbol||null,true);ok++;if(result?.quote_status?.stale)stale.push(meta(p).name||p.isin)}catch(err){console.warn('Refresh',p.isin,err);failed++}setCloudStatus(`Actualizando mercados… ${i+1}/${limited.length}`)}
+ await syncFromCloud(false);localStorage.setItem(AUTO_REFRESH_KEY,new Date().toISOString());if(showNotice)alert(`Actualización terminada: ${ok} correctas${failed?`, ${failed} con error`:''}${unique.length>18?`. Se han priorizado los 18 instrumentos con datos más antiguos para respetar el plan gratuito.`:''}${stale.length?`\n\nSiguen atrasados: ${stale.join(', ')}.`:''}.`);return{ok,failed,stale}
 }
 async function refreshPortfolio(){state.lastValue=total();saveCache();await refreshAllMarketData(true)}
 function startupRefreshDue(){const raw=localStorage.getItem(AUTO_REFRESH_KEY);if(!raw)return true;const t=Date.parse(raw);if(!Number.isFinite(t))return true;return Date.now()-t>=12*3600*1000}

@@ -1,3 +1,21 @@
+v0.7.1 - Actualización robusta de precios y VL
+
+No requiere SQL nuevo.
+
+Orden de instalación:
+1. En Supabase abre Edge Functions > resolve-fund > Code.
+2. Sustituye todo el contenido del archivo index.ts por el incluido en:
+   supabase/functions/resolve-fund/index.ts
+3. Pulsa Deploy function y espera a que termine correctamente.
+4. Publica app.js, index.html, config.js, sw.js y version.json en la raíz del repositorio de GitHub.
+5. Abre la app, fuerza una recarga y pulsa "Actualizar cartera".
+
+La corrección no está programada para un único ISIN. El resolutor incorpora adaptadores por gestora, compara fechas y conserva siempre el dato más reciente. En esta versión se añade la fuente oficial de La Financière de l'Echiquier para sus fondos. Los demás fondos continúan con EODHD y, si su último dato supera cinco días naturales, la app los identifica como atrasados. También se priorizan los instrumentos con precios más antiguos al aplicar el límite de 18 actualizaciones.
+
+La migración 015_recurring_operations_v0.7.0.sql sólo es necesaria si aún no instalaste la versión 0.7.0.
+
+---
+
 v0.7.0 - Base 2026 editable y aportaciones recurrentes
 
 Esta versión requiere haber aplicado 014_portfolios_v0.6.0.sql y ejecutar después 015_recurring_operations_v0.7.0.sql en Supabase > SQL Editor.
