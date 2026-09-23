@@ -1,14 +1,14 @@
-v0.6.0 - Varias carteras por usuario
+v0.7.0 - Base 2026 editable y aportaciones recurrentes
 
-Esta versión requiere ejecutar primero el archivo 014_portfolios_v0.6.0.sql en Supabase > SQL Editor.
+Esta versión requiere haber aplicado 014_portfolios_v0.6.0.sql y ejecutar después 015_recurring_operations_v0.7.0.sql en Supabase > SQL Editor.
 
 Orden obligatorio:
-1. Ejecutar 014_portfolios_v0.6.0.sql y comprobar que finaliza sin errores.
-2. Publicar el resto de archivos del parche en la raíz del repositorio de GitHub.
-3. Abrir la app y forzar una recarga. La primera entrada crea "Mi cartera" y le asigna todas las cuentas existentes.
-4. Pulsar el botón de engranaje para cambiar su nombre o crear las carteras de Padres, Hija u otras personas.
+1. Si todavía no está aplicada, ejecutar 014_portfolios_v0.6.0.sql.
+2. Ejecutar 015_recurring_operations_v0.7.0.sql y comprobar que finaliza sin errores.
+3. Publicar el resto de archivos del parche en la raíz del repositorio de GitHub.
+4. Abrir la app y forzar una recarga para instalar la versión 0.7.0.
 
-No se crean usuarios ni contraseñas adicionales. Cada cartera mantiene separadas sus cuentas, posiciones, operaciones, valoración y rentabilidad.
+Al editar una Base 2026 sólo se solicitan la base y las participaciones actuales. Las aportaciones recurrentes se guardan como una única regla y sus vencimientos se incorporan internamente al cálculo usando VL/precios exactos. Por ahora deben estar denominadas en EUR.
 
 v0.5.2 - Reparación del alta automática por ISIN
 

@@ -1,4 +1,4 @@
-MI CARTERA v0.6.0 - CRITERIOS DE CALCULO
+MI CARTERA v0.7.0 - CRITERIOS DE CALCULO
 
 0. Separacion por cartera
    Cada cuenta bancaria pertenece a una única cartera mediante portfolio_id.
@@ -56,3 +56,14 @@ MI CARTERA v0.6.0 - CRITERIOS DE CALCULO
    Rentabilidad 2026 = (valor final + salidas - base - aportaciones posteriores) / (base + aportaciones posteriores).
    Si el coste anterior al punto de seguimiento es desconocido, la rentabilidad total historica se muestra como N/D.
    La base se guarda como metadato estructurado en notes y no modifica el esquema de datos.
+
+11. Aportaciones recurrentes
+   Cada plan se guarda como una única regla; no se crean operaciones mensuales visibles.
+   La regla contiene cuenta, fondo/cotización, importe en EUR, fecha inicial, día del mes, periodicidad y fecha final opcional.
+   Para cada vencimiento pasado se usa el primer VL/precio exacto publicado desde la fecha prevista, con una ventana máxima de 14 días.
+   Participaciones del vencimiento = importe / VL o precio exacto.
+   Cada vencimiento aplicado entra como aportación en las participaciones, los flujos y la rentabilidad personal del periodo.
+   Si no existe un precio exacto, el vencimiento queda pendiente y no se incluye hasta disponer de él.
+   Los días 29, 30 o 31 se ajustan al último día real de los meses más cortos.
+   Varias reglas pueden coexistir para el mismo fondo.
+   La versión actual sólo automatiza cotizaciones en EUR para no inventar tipos de cambio históricos.
