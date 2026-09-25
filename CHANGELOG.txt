@@ -1,3 +1,15 @@
+v0.8.0 - 2026-09-25
+- Oculta por defecto el botón flotante "+ Operación" y lo muestra únicamente en Operaciones.
+- Corrige el desbordamiento horizontal móvil de grupos, logotipos y tarjetas de posiciones.
+- Mantiene la navegación inferior fija al ancho real de la pantalla, sin depender del ancho del contenido.
+- Añade en Análisis un gráfico de evolución de la valoración desde 2026 y años posteriores.
+- Permite filtrar el gráfico por toda la cartera o por cada entidad bancaria.
+- Reconstruye la curva con las participaciones vigentes en cada fecha, las operaciones y los precios guardados.
+- Diferencia expresamente la variación del valor de la rentabilidad, porque la curva incluye aportaciones y retiradas.
+- Muestra durante la actualización el instrumento en curso, el contador y una barra de progreso.
+- El botón Actualizar cartera procesa todos los perfiles en una sola ejecución y evita duplicar consultas del mismo instrumento.
+- No requiere SQL nuevo ni cambios de esquema.
+
 v0.7.2 - 2026-09-23
 - Añade VDOS/Quefondos como fuente transversal de último VL, fecha y divisa para fondos tradicionales de distintas gestoras.
 - Selecciona el dato más reciente entre la fuente oficial, VDOS/Quefondos y EODHD.

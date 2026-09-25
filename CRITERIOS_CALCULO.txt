@@ -1,4 +1,4 @@
-MI CARTERA v0.7.0 - CRITERIOS DE CALCULO
+MI CARTERA v0.8.0 - CRITERIOS DE CALCULO
 
 0. Separacion por cartera
    Cada cuenta bancaria pertenece a una única cartera mediante portfolio_id.
@@ -67,3 +67,16 @@ MI CARTERA v0.7.0 - CRITERIOS DE CALCULO
    Los días 29, 30 o 31 se ajustan al último día real de los meses más cortos.
    Varias reglas pueden coexistir para el mismo fondo.
    La versión actual sólo automatiza cotizaciones en EUR para no inventar tipos de cambio históricos.
+
+12. Evolucion historica de la cartera
+   La curva anual reconstruye las participaciones vigentes en cada fecha a partir de las operaciones completadas.
+   Cada posición se valora con el último precio/VL guardado disponible en esa fecha.
+   Una Base 2026 utiliza como punto de apertura el valor declarado por el usuario a 01/01/2026.
+   Las aportaciones, ventas y reembolsos modifican el valor de la curva cuando entran en vigor.
+   Por ello, la diferencia entre el primer y el último valor es variación de valoración y no se etiqueta como rentabilidad.
+   La vista puede agregar toda la cartera activa o limitarse a una entidad bancaria.
+
+13. Actualizacion de precios
+   El botón Actualizar cartera reúne las posiciones de todas las carteras/perfiles del mismo inicio de sesión.
+   Un mismo ISIN y cotización sólo se consulta una vez aunque figure en varios perfiles.
+   La pantalla muestra el instrumento en curso y el avance total hasta finalizar.

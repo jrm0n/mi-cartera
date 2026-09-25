@@ -1,14 +1,30 @@
-v0.7.2 - Fuentes generales y rentabilidad YTD completa
+v0.8.0 - Correcciones móviles y evolución de la cartera
 
 No requiere SQL nuevo.
 
 Orden de instalación:
-1. En Supabase abre Edge Functions > resolve-fund > Code.
-2. Sustituye todo el contenido del archivo index.ts por el incluido en:
-   supabase/functions/resolve-fund/index.ts
-3. Pulsa Deploy function y espera a que termine correctamente.
-4. Publica app.js, index.html, config.js, sw.js y version.json en la raíz del repositorio de GitHub.
-5. Abre la app, fuerza una recarga y pulsa "Actualizar cartera".
+1. Publica app.js, index.html, config.js, sw.js y version.json en la raíz del repositorio de GitHub.
+2. Abre la app y fuerza una recarga para que el móvil instale la versión 0.8.0.
+3. Pulsa "Actualizar cartera" una sola vez: se actualizarán los instrumentos de todos los perfiles.
+
+No es necesario ejecutar ninguna migración ni modificar la Edge Function para instalar esta versión.
+
+Cambios principales:
+- El botón flotante "+ Operación" sólo aparece en la pantalla Operaciones y deja de tapar la última posición.
+- Posiciones y navegación inferior quedan limitadas al ancho real del móvil, sin zoom ni desplazamiento horizontal.
+- Análisis incorpora la evolución anual desde 2026, seleccionable para toda la cartera o por banco.
+- Mientras se actualiza se muestra el fondo en curso, el contador y una barra de progreso.
+- Una sola actualización procesa todos los perfiles y evita consultar dos veces el mismo instrumento.
+
+La curva de Análisis representa la valoración histórica reconstruida con participaciones y precios guardados. Incluye el efecto de aportaciones, ventas y reembolsos, por lo que la variación del valor no se presenta como si fuera rentabilidad.
+
+---
+
+v0.7.2 - Fuentes generales y rentabilidad YTD completa
+
+No requiere SQL nuevo.
+
+La instalación de v0.7.2 requería publicar la Edge Function resolve-fund incluida en su parche.
 
 El resolutor consulta el VL más reciente por ISIN en VDOS/Quefondos para fondos tradicionales de cualquier gestora compatible, además de EODHD y de las fuentes oficiales específicas disponibles. Compara fechas y conserva siempre el dato más reciente; a igualdad de fecha, la fuente oficial tiene prioridad.
 
