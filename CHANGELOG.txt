@@ -1,3 +1,13 @@
+v0.8.1 - 2026-09-25
+- Corrige el gráfico agregado que podía mostrar una línea casi recta entre la Base 2026 y el valor actual.
+- Construye la curva con todos los VL/precios diarios guardados y las participaciones vigentes en cada fecha.
+- Mantiene el último VL conocido en fechas sin publicación; una posición con histórico incompleto ya no elimina los puntos diarios del resto de la cartera.
+- Añade periodos 1D, 1M, 3M, 6M, 1A, YTD, 2A, 3A, 5A y Desde inicio.
+- Añade esos periodos también al gráfico individual de cada fondo.
+- Conserva el filtro de toda la cartera o por entidad bancaria.
+- Muestra la versión de la aplicación en la barra superior junto a la cartera activa.
+- No requiere SQL nuevo ni cambios de esquema.
+
 v0.8.0 - 2026-09-25
 - Oculta por defecto el botón flotante "+ Operación" y lo muestra únicamente en Operaciones.
 - Corrige el desbordamiento horizontal móvil de grupos, logotipos y tarjetas de posiciones.

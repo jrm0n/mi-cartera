@@ -1,22 +1,33 @@
-v0.8.0 - Correcciones móviles y evolución de la cartera
+v0.8.1 - Gráfico diario completo y versión visible
 
 No requiere SQL nuevo.
 
 Orden de instalación:
 1. Publica app.js, index.html, config.js, sw.js y version.json en la raíz del repositorio de GitHub.
-2. Abre la app y fuerza una recarga para que el móvil instale la versión 0.8.0.
+2. Abre la app y fuerza una recarga para que el móvil instale la versión 0.8.1.
 3. Pulsa "Actualizar cartera" una sola vez: se actualizarán los instrumentos de todos los perfiles.
 
 No es necesario ejecutar ninguna migración ni modificar la Edge Function para instalar esta versión.
 
 Cambios principales:
+- El gráfico de Análisis se construye con todos los VL/precios diarios disponibles; ya no une únicamente la base inicial con el valor actual.
+- Periodos disponibles: 1D, 1M, 3M, 6M, 1A, YTD, 2A, 3A, 5A y Desde inicio.
+- Los mismos periodos se añaden al gráfico individual de cada fondo.
+- El filtro permite ver toda la cartera activa o una entidad bancaria concreta.
+- La versión de la app aparece en la barra superior, junto a "Cartera activa".
 - El botón flotante "+ Operación" sólo aparece en la pantalla Operaciones y deja de tapar la última posición.
 - Posiciones y navegación inferior quedan limitadas al ancho real del móvil, sin zoom ni desplazamiento horizontal.
-- Análisis incorpora la evolución anual desde 2026, seleccionable para toda la cartera o por banco.
+- Análisis incorpora la evolución histórica seleccionable para toda la cartera o por banco.
 - Mientras se actualiza se muestra el fondo en curso, el contador y una barra de progreso.
 - Una sola actualización procesa todos los perfiles y evita consultar dos veces el mismo instrumento.
 
-La curva de Análisis representa la valoración histórica reconstruida con participaciones y precios guardados. Incluye el efecto de aportaciones, ventas y reembolsos, por lo que la variación del valor no se presenta como si fuera rentabilidad.
+La curva de Análisis representa la valoración histórica reconstruida con las participaciones de cada fecha y todos los VL/precios diarios guardados. En días sin publicación mantiene el último VL conocido. Incluye el efecto de aportaciones, ventas y reembolsos, por lo que la variación del valor no se presenta como si fuera rentabilidad.
+
+---
+
+v0.8.0 - Primera versión del gráfico agregado
+
+Se sustituye por v0.8.1 porque podía reducir la curva a los puntos inicial y final cuando una sola posición carecía de histórico completo.
 
 ---
 
