@@ -1,3 +1,12 @@
+v0.8.2 - 2026-09-25
+- Separa el gráfico de Análisis en dos modos: Valor € y Rentabilidad %.
+- Valor € representa el patrimonio y muestra los saltos provocados por nuevas posiciones, aportaciones, ventas y reembolsos.
+- Rentabilidad % descuenta las entradas y salidas de dinero y usa la Base 2026 como capital inicial a 01/01/2026.
+- El último punto YTD de Rentabilidad % coincide con el cálculo anual mostrado en Inicio.
+- Elimina el porcentaje engañoso obtenido al dividir la diferencia de patrimonio entre el valor inicial.
+- Conserva en ambos modos los periodos 1D, 1M, 3M, 6M, 1A, YTD, 2A, 3A, 5A y Desde inicio.
+- No requiere SQL nuevo ni cambios de esquema.
+
 v0.8.1 - 2026-09-25
 - Corrige el gráfico agregado que podía mostrar una línea casi recta entre la Base 2026 y el valor actual.
 - Construye la curva con todos los VL/precios diarios guardados y las participaciones vigentes en cada fecha.

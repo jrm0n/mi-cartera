@@ -1,15 +1,20 @@
-v0.8.1 - Gráfico diario completo y versión visible
+v0.8.2 - Valor patrimonial y rentabilidad separados
 
 No requiere SQL nuevo.
 
 Orden de instalación:
 1. Publica app.js, index.html, config.js, sw.js y version.json en la raíz del repositorio de GitHub.
-2. Abre la app y fuerza una recarga para que el móvil instale la versión 0.8.1.
+2. Abre la app y fuerza una recarga para que el móvil instale la versión 0.8.2.
 3. Pulsa "Actualizar cartera" una sola vez: se actualizarán los instrumentos de todos los perfiles.
 
 No es necesario ejecutar ninguna migración ni modificar la Edge Function para instalar esta versión.
 
 Cambios principales:
+- Análisis permite alternar entre Valor € y Rentabilidad %.
+- Valor € muestra el patrimonio y los saltos producidos por aportaciones, retiradas y nuevos fondos.
+- Rentabilidad % descuenta esos flujos y toma cada Base 2026 como capital inicial a 01/01/2026.
+- El dato final YTD de rentabilidad usa el mismo cálculo que la pantalla Inicio.
+- Ya no se muestra como rentabilidad el porcentaje de cambio entre el patrimonio inicial y final.
 - El gráfico de Análisis se construye con todos los VL/precios diarios disponibles; ya no une únicamente la base inicial con el valor actual.
 - Periodos disponibles: 1D, 1M, 3M, 6M, 1A, YTD, 2A, 3A, 5A y Desde inicio.
 - Los mismos periodos se añaden al gráfico individual de cada fondo.
@@ -21,7 +26,7 @@ Cambios principales:
 - Mientras se actualiza se muestra el fondo en curso, el contador y una barra de progreso.
 - Una sola actualización procesa todos los perfiles y evita consultar dos veces el mismo instrumento.
 
-La curva de Análisis representa la valoración histórica reconstruida con las participaciones de cada fecha y todos los VL/precios diarios guardados. En días sin publicación mantiene el último VL conocido. Incluye el efecto de aportaciones, ventas y reembolsos, por lo que la variación del valor no se presenta como si fuera rentabilidad.
+La curva Valor € representa la valoración histórica reconstruida con las participaciones de cada fecha y todos los VL/precios diarios guardados. La curva Rentabilidad % utiliza esos mismos valores, pero elimina el efecto de aportaciones y retiradas para mostrar el rendimiento personal.
 
 ---
 
