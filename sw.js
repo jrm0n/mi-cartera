@@ -1,5 +1,6 @@
-const CACHE='mi-cartera-v0.10.0';
-const ASSETS=['./','./index.html','./manifest.webmanifest','./config.js','./app.js','./version.json','./icons/icon-192.png','./icons/icon-512.png'];
+importScripts('./version.js');
+const CACHE='mi-cartera-v'+self.MI_CARTERA_VERSION;
+const ASSETS=['./','./index.html','./manifest.webmanifest','./version.js','./config.js','./core.js','./analysis.js','./operations.js','./market.js','./app.js','./version.json','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install',e=>e.waitUntil((async()=>{
   const c=await caches.open(CACHE);
   for(const asset of ASSETS){
@@ -9,7 +10,7 @@ self.addEventListener('install',e=>e.waitUntil((async()=>{
 })()));
 self.addEventListener('activate',e=>e.waitUntil((async()=>{
   const keys=await caches.keys();
-  await Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)));
+  await Promise.all(keys.filter(k=>k.startsWith('mi-cartera-v')&&k!==CACHE).map(k=>caches.delete(k)));
   await self.clients.claim();
 })()));
 self.addEventListener('message',e=>{if(e.data?.type==='SKIP_WAITING')self.skipWaiting();});

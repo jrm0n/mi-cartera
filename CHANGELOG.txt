@@ -1,3 +1,17 @@
+v0.11.0 - 2026-09-26
+- Separa frontend y proveedores de resolve-fund en archivos de menor tamaño.
+- Incorpora pruebas locales de cálculos, estructura y versión.
+- Limita la limpieza de cachés PWA a las pertenecientes a Mi Cartera.
+- No cambia el esquema de datos ni el cálculo financiero.
+
+v0.10.0 - 2026-09-26
+- Agrupa la actualización por instrumento único y procesa hasta tres simultáneamente.
+- Añade un informe de diagnóstico por fuente y reintentos individuales.
+- Amplía la resolución por ISIN cuando falla la búsqueda principal.
+
+v0.9.3 - 2026-09-26
+- Añade comparaciones en Análisis y conciliación entre resultado, aportaciones netas y variación del patrimonio.
+
 v0.9.2 - 2026-09-26
 - Convierte la atribución en un navegador por fondo, banco y temática.
 - Sincroniza cada selección con los indicadores, el gráfico, los movimientos, la calidad de datos y la distribución temática.

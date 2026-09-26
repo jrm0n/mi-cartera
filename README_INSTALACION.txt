@@ -1,3 +1,8 @@
+VERSION ACTUAL: v0.11.0
+Consulta RELEASE_NOTES_0.11.0.txt para instalar esta versión.
+
+HISTORIAL DE INSTALACIÓN (versiones anteriores):
+
 v0.9.2 - Análisis navegable
 
 No requiere SQL nuevo.

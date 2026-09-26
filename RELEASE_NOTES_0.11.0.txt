@@ -1,0 +1,16 @@
+Mi Cartera v0.11.0
+
+Esta versión reorganiza el código sin cambiar el esquema de datos ni los criterios de cálculo.
+La exportación JSON ya existía en v0.10.0; sigue disponible en Análisis > Datos y versión.
+
+Instalación:
+1. Publica todos los archivos y directorios del ZIP en la misma raíz web.
+   No publiques sólo app.js: ahora el navegador también carga core.js,
+   analysis.js, operations.js y market.js.
+2. Despliega supabase/functions/resolve-fund como directorio completo,
+   incluyendo providers.ts. Su nuevo index.ts importa ese archivo.
+3. No ejecutes ninguna migración SQL. El esquema sigue siendo la versión 10.
+4. Recarga la PWA después de publicar el frontend y comprueba que indica v0.11.0.
+
+Verificación local: node --test tests/*.test.cjs
+No se ha validado aquí contra la base Supabase de producción ni se ha desplegado.
