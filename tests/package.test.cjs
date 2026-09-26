@@ -16,7 +16,7 @@ test('la página carga los scripts en el orden requerido y la PWA los incluye', 
     assert.ok(worker.includes(`'./${script}'`), `${script} falta en la caché PWA`);
     previous = index;
   }
-  assert.equal(JSON.parse(read('version.json')).appVersion, '0.11.0');
+  assert.equal(JSON.parse(read('version.json')).appVersion, '0.11.1');
   assert.ok(read('supabase/functions/resolve-fund/index.ts').includes('from "./providers.ts"'));
   assert.ok(fs.existsSync(path.join(root, 'supabase/functions/resolve-fund/providers.ts')));
 });

@@ -30,4 +30,64 @@ window.retryRefreshTarget=key=>retryRefreshKeys([key]);window.retryFailedRefresh
 async function refreshPortfolio(){const button=document.getElementById('refreshBtn');if(button?.disabled)return;state.lastValue=total();saveCache();try{await refreshAllMarketData(true)}catch(err){console.error(err);setRefreshProgress(false,'No se pudo completar la actualización.',0,1,'error');alert('No se pudo actualizar la cartera: '+err.message)}}
 function startupRefreshDue(){const raw=localStorage.getItem(AUTO_REFRESH_KEY);if(!raw)return true;const t=Date.parse(raw);if(!Number.isFinite(t))return true;return Date.now()-t>=12*3600*1000}
 async function refreshOnStartup(){if(!state.positions.length||!startupRefreshDue())return;state.lastValue=total();saveCache();const el=document.getElementById('sinceUpdate');if(el)el.innerHTML='<span class="muted">Actualizando…</span>';setCloudStatus('Actualizando mercados…');try{await refreshAllMarketData(false)}catch(err){console.warn('Auto refresh',err);setRefreshProgress(false,'La actualización automática quedó pendiente.',0,1,'warn');setCloudStatus('Sincronizado con Supabase · actualización pendiente','warn')}}
-function exportBackup(){const payload={app:'Mi Cartera',appVersion:APP_VERSION,schemaVersion:DATA_SCHEMA_VERSION,exportedAt:new Date().toISOString(),cloudProject:SUPABASE_URL,state,cloudData:cloudSnapshot};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`mi-cartera-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+const BACKUP_TABLES=['portfolios','accounts','operations','transfers','recurring_operations'];
+function backupStatus(message,isError=false){const el=document.getElementById('backupStatus');if(el){el.textContent=message;el.classList.toggle('metric-negative',isError)}}
+async function backupDigest(tables){
+ const bytes=new TextEncoder().encode(JSON.stringify(tables));
+ const hash=await crypto.subtle.digest('SHA-256',bytes);
+ return [...new Uint8Array(hash)].map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+function backupRelations(tables,ownerId=null){
+ const ids=name=>new Set(tables[name].map(row=>row.id));
+ const portfolioIds=ids('portfolios'),accountIds=ids('accounts');
+ for(const name of BACKUP_TABLES){
+  if(tables[name].some(row=>!row||typeof row.id!=='string'||!row.id))throw new Error(`Hay registros sin identificador en ${name}.`);
+  if(ids(name).size!==tables[name].length)throw new Error(`Hay identificadores repetidos en ${name}.`);
+  if(ownerId&&tables[name].some(row=>row.user_id&&row.user_id!==ownerId))throw new Error(`Hay registros de otro usuario en ${name}.`);
+ }
+ for(const a of tables.accounts)if(!portfolioIds.has(a.portfolio_id))throw new Error('Hay cuentas sin cartera en la copia.');
+ for(const o of tables.operations)if(!accountIds.has(o.account_id))throw new Error('Hay operaciones sin cuenta en la copia.');
+ for(const t of tables.transfers)if(!accountIds.has(t.from_account_id)||!accountIds.has(t.to_account_id))throw new Error('Hay traspasos sin cuenta en la copia.');
+ for(const r of tables.recurring_operations)if(!portfolioIds.has(r.portfolio_id)||!accountIds.has(r.account_id))throw new Error('Hay aportaciones recurrentes sin cartera o cuenta en la copia.');
+}
+async function validateBackupPayload(payload){
+ if(!payload||payload.app!=='Mi Cartera'||payload.schemaVersion!==DATA_SCHEMA_VERSION)throw new Error('El archivo no corresponde al esquema de datos de esta versión.');
+ if(payload.formatVersion!==2){
+  if(!payload.state||!payload.cloudData)throw new Error('El archivo anterior no contiene una copia reconocible.');
+  return{legacy:true};
+ }
+ if(!payload.tables||!BACKUP_TABLES.every(name=>Array.isArray(payload.tables[name])))throw new Error('Faltan tablas de la cartera.');
+ if(!payload.ownerId||!payload.cloudProject||!payload.payloadSha256)throw new Error('Faltan datos de identificación o integridad.');
+ const {payloadSha256,...content}=payload;
+ if(payloadSha256!==await backupDigest(content))throw new Error('El contenido de la copia no coincide con su huella SHA-256.');
+ backupRelations(payload.tables,payload.ownerId);
+ return{legacy:false,counts:Object.fromEntries(BACKUP_TABLES.map(name=>[name,payload.tables[name].length]))};
+}
+async function exportBackup(){
+ const button=document.getElementById('exportBackupBtn');if(button?.disabled)return;
+ if(button)button.disabled=true;backupStatus('Preparando la copia desde Supabase…');
+ try{
+  if(!session?.user?.id)throw new Error('Inicia sesión antes de exportar.');
+  if(!await syncFromCloud(false))throw new Error('No se ha podido leer la cartera completa de Supabase.');
+  const tables={};
+  for(const name of BACKUP_TABLES)tables[name]=await selectPaged(name,'select=*&order=id.asc');
+  backupRelations(tables,session.user.id);
+  const payload={app:'Mi Cartera',formatVersion:2,appVersion:APP_VERSION,schemaVersion:DATA_SCHEMA_VERSION,exportedAt:new Date().toISOString(),cloudProject:SUPABASE_URL,ownerId:session.user.id,tables,state,cloudData:cloudSnapshot};
+  payload.payloadSha256=await backupDigest(payload);
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`mi-cartera-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  backupStatus('Copia descargada. Usa «Comprobar copia» para verificar el archivo guardado.');
+ }catch(err){backupStatus('No se pudo crear la copia: '+err.message,true)}
+ finally{if(button)button.disabled=false}
+}
+async function verifyBackupFile(input){
+ const file=input?.files?.[0];if(!file)return;
+ try{
+  const payload=JSON.parse(await file.text()),result=await validateBackupPayload(payload);
+  if(result.legacy){backupStatus('Copia antigua legible. No contiene huella ni todas las tablas para comprobar su integridad; no se ha importado.');return}
+  const counts=result.counts;
+  const origin=payload.cloudProject===SUPABASE_URL&&payload.ownerId===session?.user?.id?'mismo proyecto y usuario':'otro proyecto o usuario';
+  backupStatus(`Archivo íntegro (${origin}): ${counts.portfolios} carteras, ${counts.accounts} cuentas, ${counts.operations} operaciones, ${counts.transfers} traspasos y ${counts.recurring_operations} reglas. Comprobación local: no se ha restaurado en Supabase.`);
+ }catch(err){backupStatus('Copia no verificable: '+err.message,true)}
+ finally{input.value=''}
+}

@@ -1,3 +1,10 @@
+v0.11.1 - 2026-09-26
+- Pagina todas las tablas consultadas y rechaza respuestas truncadas.
+- Exporta una copia con tablas completas del usuario y huella de integridad.
+- Permite comprobar localmente la estructura e integridad de un JSON descargado.
+- La comprobación no restaura los datos en Supabase.
+- Sin migración SQL ni cambio de los criterios financieros.
+
 v0.11.0 - 2026-09-26
 - Separa frontend y proveedores de resolve-fund en archivos de menor tamaño.
 - Incorpora pruebas locales de cálculos, estructura y versión.

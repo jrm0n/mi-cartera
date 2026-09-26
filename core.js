@@ -230,6 +230,10 @@ async function selectPaged(table,query='',pageSize=1000,maxRows=50000){
   rows.push(...batch);
   if(batch.length<pageSize)break;
  }
+ if(rows.length>=maxRows){
+  const extra=await rest(`${table}${query?'?'+query:''}`,{headers:{Range:`${maxRows}-${maxRows}`}});
+  if(Array.isArray(extra)&&extra.length)throw new Error(`La tabla ${table} supera el límite de ${maxRows} filas. No se mostrará una cartera parcial.`);
+ }
  return rows;
 }
 const insert=(table,body)=>rest(table,{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify(body)});
@@ -437,15 +441,15 @@ async function syncFromCloud(showNotice=false){
  try{
    try{await rpc('ensure_default_portfolio_v1',{p_name:'Mi cartera'})}catch(err){if(/ensure_default_portfolio_v1|schema cache|PGRST202/i.test(String(err?.message||err)))throw new Error('Falta ejecutar la migración 014_portfolios_v0.6.0.sql en Supabase.');throw err}
    const [portfolios,accounts,ops,transfers,recurringRules,funds,navs,listings,listingPrices]=await Promise.all([
-     select('portfolios','active=eq.true&select=id,name,is_default,active,sort_order,created_at&order=sort_order,created_at'),
-     select('accounts','select=id,portfolio_id,institution_code,account_name,active,created_at&order=created_at'),
-     select('operations','select=id,account_id,isin,listing_symbol,operation_type,operation_date,request_date,execution_date,amount,shares_delta,nav,fees,external_cashflow,status,validation_status,reference_nav,reference_nav_date,nav_difference_pct,input_consistency_pct,execution_confirmed,transfer_id,notes,created_at,updated_at&order=operation_date.desc,created_at.desc'),
-     select('transfers','select=id,from_account_id,from_isin,to_account_id,to_isin,request_date,settlement_date,out_execution_date,in_execution_date,amount,shares_out,shares_in,nav_out,nav_in,status,validation_status,out_reference_nav,in_reference_nav,out_difference_pct,in_difference_pct,notes,created_at,updated_at&order=request_date.desc,created_at.desc'),
-     select('recurring_operations','select=id,portfolio_id,account_id,isin,listing_symbol,amount,start_date,day_of_month,interval_months,end_date,active,created_at,updated_at&order=start_date.desc,created_at.desc'),
-     select('funds','select=isin,name,manager,currency,theme,subtheme,benchmark,active,category,category_source,category_fetched_at,data_provider,provider_symbol,instrument_type,metadata_source,metadata_fetched_at'),
-     selectPaged('fund_navs','select=isin,nav_date,nav,currency,source,fetched_at&order=nav_date.desc'),
-     select('instrument_listings','select=provider_symbol,isin,ticker,exchange_code,exchange_name,currency,instrument_type,is_primary,source,fetched_at&order=isin,exchange_name,ticker'),
-     selectPaged('listing_prices','select=provider_symbol,price_date,price,currency,source,fetched_at,is_approximate,proxy_symbol,calibration_factor,approximation_method,calibration_date&order=price_date.desc')
+     selectPaged('portfolios','active=eq.true&select=id,name,is_default,active,sort_order,created_at&order=sort_order.asc,created_at.asc,id.asc'),
+     selectPaged('accounts','select=id,portfolio_id,institution_code,account_name,active,created_at&order=created_at.asc,id.asc'),
+     selectPaged('operations','select=id,account_id,isin,listing_symbol,operation_type,operation_date,request_date,execution_date,amount,shares_delta,nav,fees,external_cashflow,status,validation_status,reference_nav,reference_nav_date,nav_difference_pct,input_consistency_pct,execution_confirmed,transfer_id,notes,created_at,updated_at&order=operation_date.desc,created_at.desc,id.desc'),
+     selectPaged('transfers','select=id,from_account_id,from_isin,to_account_id,to_isin,request_date,settlement_date,out_execution_date,in_execution_date,amount,shares_out,shares_in,nav_out,nav_in,status,validation_status,out_reference_nav,in_reference_nav,out_difference_pct,in_difference_pct,notes,created_at,updated_at&order=request_date.desc,created_at.desc,id.desc'),
+     selectPaged('recurring_operations','select=id,portfolio_id,account_id,isin,listing_symbol,amount,start_date,day_of_month,interval_months,end_date,active,created_at,updated_at&order=start_date.desc,created_at.desc,id.desc'),
+     selectPaged('funds','select=isin,name,manager,currency,theme,subtheme,benchmark,active,category,category_source,category_fetched_at,data_provider,provider_symbol,instrument_type,metadata_source,metadata_fetched_at&order=isin.asc'),
+     selectPaged('fund_navs','select=isin,nav_date,nav,currency,source,fetched_at&order=nav_date.desc,isin.asc'),
+     selectPaged('instrument_listings','select=provider_symbol,isin,ticker,exchange_code,exchange_name,currency,instrument_type,is_primary,source,fetched_at&order=provider_symbol.asc'),
+     selectPaged('listing_prices','select=provider_symbol,price_date,price,currency,source,fetched_at,is_approximate,proxy_symbol,calibration_factor,approximation_method,calibration_date&order=price_date.desc,provider_symbol.asc')
    ]);
    state.portfolios=portfolios||[];const remembered=localStorage.getItem(ACTIVE_PORTFOLIO_KEY),wanted=state.portfolios.find(p=>p.id===remembered)||state.portfolios.find(p=>p.id===state.activePortfolioId)||state.portfolios.find(p=>p.is_default)||state.portfolios[0];if(!wanted)throw new Error('No se pudo crear la cartera inicial.');state.activePortfolioId=wanted.id;localStorage.setItem(ACTIVE_PORTFOLIO_KEY,wanted.id);
    cloudSnapshot={accounts:accounts||[],ops:ops||[],transfers:transfers||[],recurringRules:recurringRules||[],funds:funds||[],navs:navs||[],listings:listings||[],listingPrices:listingPrices||[]};state.funds={};state.listings={};

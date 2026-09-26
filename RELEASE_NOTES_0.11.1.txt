@@ -1,0 +1,23 @@
+Mi Cartera v0.11.1
+
+Publica todos los archivos de la raíz y las carpetas del ZIP en GitHub.
+Si ya instalaste v0.11.0, la Edge Function resolve-fund no ha cambiado y no hay que desplegarla de nuevo.
+No ejecutes migraciones SQL. El esquema permanece en la versión 10.
+
+Cambios:
+- Las tablas de la cartera se leen por páginas de 1.000 filas. Si se alcanza
+  el máximo configurado de 50.000 por tabla, se muestra un error en vez de
+  presentar un resultado incompleto como si fuese completo.
+- «Exportar copia» sincroniza y consulta las cinco tablas de datos del usuario
+  antes de descargar el JSON. Incluye además la instantánea de mercado leída,
+  la versión, el usuario/proyecto y una huella SHA-256 de dichas tablas.
+- «Comprobar copia» abre un JSON local, comprueba la huella y las relaciones
+  entre cartera, cuentas y operaciones, y muestra los recuentos. Las copias
+  antiguas se reconocen, pero no permiten esta verificación completa.
+
+IMPORTANTE: «Comprobar copia» sólo lee el archivo. No importa, sustituye ni
+restaura nada en Supabase. El exportador no ofrece una restauración automática.
+Una restauración de la base requiere un procedimiento separado y probado en un
+entorno de ensayo. Conserva las copias de seguridad del propio Supabase.
+
+Pruebas locales: node --test tests/*.test.cjs

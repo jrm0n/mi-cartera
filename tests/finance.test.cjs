@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { webcrypto } = require('node:crypto');
 const root = path.resolve(__dirname, '..');
 
 function loadApp() {
@@ -15,7 +16,7 @@ function loadApp() {
     return elements.get(id);
   };
   const context = {
-    console, Date, Intl, URL, setTimeout: () => 0, clearTimeout(){},
+    console, Date, Intl, URL, TextEncoder, crypto: webcrypto, setTimeout: () => 0, clearTimeout(){},
     localStorage: { getItem: () => null, setItem(){}, removeItem(){} },
     navigator: {},
     document: {
@@ -37,7 +38,7 @@ const app = loadApp();
 const evalInApp = expression => vm.runInContext(expression, app);
 
 test('la versión y las funciones esenciales cargan con el orden publicado', () => {
-  assert.equal(evalInApp('APP_VERSION'), '0.11.0');
+  assert.equal(evalInApp('APP_VERSION'), '0.11.1');
   assert.equal(typeof app.exportBackup, 'function');
   assert.equal(typeof app.retryRefreshTarget, 'function');
 });
@@ -57,4 +58,30 @@ test('la conciliación separa aportaciones y resultado', () => {
 test('una cotización histórica insuficiente queda como N/D', () => {
   const result = evalInApp("returnBetween([{nav_date:'2025-01-01',nav:100}], '2024-01-01', 110, '2025-01-01')");
   assert.equal(result.value, null);
+});
+
+test('las operaciones se leen por páginas y el límite no devuelve datos truncados', async () => {
+  app.__rows = Array.from({length:5}, (_,id)=>({id}));
+  evalInApp('rest=async (_path,options)=>{const [a,b]=options.headers.Range.split("-").map(Number);return __rows.slice(a,b+1)}');
+  const complete = await evalInApp('selectPaged("operations","order=id.asc",2,10)');
+  assert.equal(complete.length, 5);
+  await assert.rejects(evalInApp('selectPaged("operations","order=id.asc",2,4)'), /supera el límite/);
+});
+
+test('la comprobación detecta una copia alterada y referencias huérfanas', async () => {
+  const tables = {
+    portfolios:[{id:'p'}], accounts:[{id:'a',portfolio_id:'p'}],
+    operations:[{id:'o',account_id:'a'}],transfers:[],recurring_operations:[],
+  };
+  app.__tables = tables;
+  app.__backup = {app:'Mi Cartera',formatVersion:2,schemaVersion:10,ownerId:'u',cloudProject:'project',tables};
+  app.__backup.payloadSha256 = await evalInApp('backupDigest(__backup)');
+  const checked = await evalInApp('validateBackupPayload(__backup)');
+  assert.equal(checked.counts.operations,1);
+  tables.operations[0].account_id='desconocida';
+  await assert.rejects(evalInApp('validateBackupPayload(__backup)'), /huella SHA-256/);
+  const {payloadSha256,...content}=app.__backup;
+  app.__content=content;
+  app.__backup.payloadSha256=await evalInApp('backupDigest(__content)');
+  await assert.rejects(evalInApp('validateBackupPayload(__backup)'), /sin cuenta/);
 });

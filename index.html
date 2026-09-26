@@ -62,11 +62,11 @@ main{width:100%;min-width:0;max-width:1180px;margin:auto;padding:18px 14px}.page
     <div class="spacer"></div>
     <button class="sidebtn" id="installDesktop" style="display:none">Instalar app</button>
     <button class="sidebtn" id="themeDesktop">Modo oscuro</button>
-    <div class="muted" id="appVersionLabel" style="font-size:11px;padding:8px 4px">v0.11.0</div>
+    <div class="muted" id="appVersionLabel" style="font-size:11px;padding:8px 4px">v0.11.1</div>
   </aside>
 
   <header class="topbar"><div class="topbar-inner">
-    <div class="portfolio-head"><label class="eyebrow" for="portfolioSelect"><span>Cartera activa</span><span class="top-version" id="topVersionLabel">v0.11.0</span></label><select id="portfolioSelect" class="portfolio-select" aria-label="Seleccionar cartera"><option>Mi cartera</option></select></div>
+    <div class="portfolio-head"><label class="eyebrow" for="portfolioSelect"><span>Cartera activa</span><span class="top-version" id="topVersionLabel">v0.11.1</span></label><select id="portfolioSelect" class="portfolio-select" aria-label="Seleccionar cartera"><option>Mi cartera</option></select></div>
     <div class="spacer"></div>
     <span class="sync-badge" id="syncBadge">Conectando…</span>
     <button class="iconbtn" id="managePortfoliosBtn" aria-label="Gestionar carteras" title="Gestionar carteras">⚙</button>
@@ -120,7 +120,7 @@ main{width:100%;min-width:0;max-width:1180px;margin:auto;padding:18px 14px}.page
       <div class="analysis-card"><div class="eyebrow">Atribución del resultado</div><div class="muted" style="font-size:11px;margin-top:4px">Pulsa un fondo, banco o temática para aplicar el filtro al resultado y al gráfico.</div><div id="attributionBody"></div></div>
       <div class="analysis-card"><div class="eyebrow">Calidad de los datos</div><div id="qualityBody"></div></div>
       <div class="analysis-card"><div class="eyebrow">Distribución temática</div><div class="mini-bars" id="themeBars"></div></div>
-      <div class="analysis-card"><div class="eyebrow">Datos y versión</div><p style="line-height:1.5;margin:8px 0 10px"><strong id="appVersionAnalysis">Mi Cartera v0.11.0 Cloud</strong> · esquema de datos <span id="schemaVersionAnalysis">10</span>.<br>Supabase es la fuente de verdad. La app conserva además una copia local de lectura para poder mostrar la última cartera si temporalmente no hay conexión.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small" onclick="exportBackup()">Exportar copia</button><button class="btn small" onclick="syncFromCloud(true)">Sincronizar ahora</button></div><div class="notice" id="cloudStatus" style="margin-top:10px">Conectando con Supabase…</div><div class="muted" id="signedUser" style="font-size:12px;margin-top:8px"></div></div>
+      <div class="analysis-card"><div class="eyebrow">Datos y versión</div><p style="line-height:1.5;margin:8px 0 10px"><strong id="appVersionAnalysis">Mi Cartera v0.11.1 Cloud</strong> · esquema de datos <span id="schemaVersionAnalysis">10</span>.<br>Supabase es la fuente de verdad. La app conserva además una copia local de lectura para poder mostrar la última cartera si temporalmente no hay conexión.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small" id="exportBackupBtn" onclick="exportBackup()">Exportar copia</button><button class="btn small" onclick="document.getElementById('backupFile').click()">Comprobar copia</button><input id="backupFile" type="file" accept=".json,application/json" style="display:none" onchange="verifyBackupFile(this)"><button class="btn small" onclick="syncFromCloud(true)">Sincronizar ahora</button></div><div class="muted" id="backupStatus" role="status" style="margin-top:8px"></div><div class="notice" id="cloudStatus" style="margin-top:10px">Conectando con Supabase…</div><div class="muted" id="signedUser" style="font-size:12px;margin-top:8px"></div></div>
     </section>
   </main>
 

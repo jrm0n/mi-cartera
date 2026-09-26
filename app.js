@@ -1,4 +1,5 @@
 window.exportBackup=exportBackup;
+window.verifyBackupFile=verifyBackupFile;
 
 function toggleTheme(){const root=document.documentElement;root.dataset.theme=root.dataset.theme==='dark'?'':'dark';localStorage.setItem(THEME_KEY,root.dataset.theme||'light');setTimeout(()=>{const c=document.getElementById('fundChart');if(c){const p=state.positions.find(x=>document.getElementById('detailBackdrop').classList.contains('open')&&document.getElementById('detailContent').textContent.includes(meta(x).name));if(p)drawChart(p,'YTD')}if(document.getElementById('page-analysis')?.classList.contains('active'))renderAnalysis()},30)}
 

@@ -1,5 +1,5 @@
-VERSION ACTUAL: v0.11.0
-Consulta RELEASE_NOTES_0.11.0.txt para instalar esta versión.
+VERSION ACTUAL: v0.11.1
+Consulta RELEASE_NOTES_0.11.1.txt para instalar esta versión.
 
 HISTORIAL DE INSTALACIÓN (versiones anteriores):
 
