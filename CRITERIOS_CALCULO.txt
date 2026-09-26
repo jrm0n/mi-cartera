@@ -1,4 +1,4 @@
-MI CARTERA v0.9.0 - CRITERIOS DE CALCULO
+MI CARTERA v0.9.1 - CRITERIOS DE CALCULO
 
 0. Separacion por cartera
    Cada cuenta bancaria pertenece a una única cartera mediante portfolio_id.
@@ -43,9 +43,9 @@ MI CARTERA v0.9.0 - CRITERIOS DE CALCULO
 8. Motor comun y medidas del periodo
    Inicio, Posiciones, detalle y Análisis usan el mismo motor y el mismo conjunto de flujos.
    Resultado en EUR = valor final + retiradas - valor inicial - aportaciones.
-   Rentabilidad simple = resultado / (valor inicial + aportaciones).
-   TWR enlaza los rendimientos de los subperiodos entre flujos y elimina el efecto de su tamaño y momento.
-   XIRR es la tasa anualizada que iguala a cero los flujos con sus fechas exactas y el valor final.
+   Rentabilidad simple = resultado / (valor inicial + aportaciones). Es un dato auxiliar visible sólo en el desglose auditable.
+   TWR acumulada enlaza los rendimientos de los subperiodos entre flujos y elimina el efecto de su tamaño y momento.
+   XIRR es la tasa anualizada que iguala a cero los flujos con sus fechas exactas y el valor final. No es una previsión.
    Los traspasos internos se excluyen del flujo agregado si ambas patas están dentro de la selección; al filtrar sólo un banco, la pata que cruza el límite sí se trata como entrada o salida.
 
 9. Datos aproximados
@@ -72,14 +72,14 @@ MI CARTERA v0.9.0 - CRITERIOS DE CALCULO
    La versión actual sólo automatiza cotizaciones en EUR para no inventar tipos de cambio históricos.
 
 12. Evolucion historica de la cartera
-   Análisis ofrece tres vistas independientes: Valor €, TWR y rentabilidad simple.
+   Análisis ofrece dos vistas independientes: Valor € y TWR acumulada.
    La curva reconstruye las participaciones vigentes en cada fecha a partir de las operaciones completadas.
    Cada posición se valora con todos los precios/VL diarios guardados; en días sin publicación se conserva el último dato conocido.
    Una Base 2026 utiliza como punto de apertura el valor declarado por el usuario a 01/01/2026.
    Si una posición carece temporalmente de histórico, se mantiene su base o valor de operación hasta disponer de su primer VL; no se eliminan por ello los puntos diarios del resto de la cartera.
    En Valor €, las aportaciones, ventas y reembolsos modifican el patrimonio cuando entran en vigor y producen los saltos correspondientes.
-   En TWR se enlazan los subperiodos separados por flujos. En rentabilidad simple se aplica resultado acumulado / capital acumulado.
-   Los tres modos se muestran por separado; la diferencia patrimonial nunca se etiqueta como porcentaje de rentabilidad.
+   En TWR se enlazan los subperiodos separados por flujos. La rentabilidad simple se conserva sólo en el desglose auditable.
+   Los dos modos se muestran por separado; la diferencia patrimonial nunca se etiqueta como porcentaje de rentabilidad.
    El último punto YTD de TWR usa el mismo motor agregado que la pantalla Inicio.
    La vista puede agregar toda la cartera activa o limitarse a una entidad bancaria.
    Periodos disponibles: 1D, 1M, 3M, 6M, 1A, YTD, 2A, 3A, 5A y Desde inicio.

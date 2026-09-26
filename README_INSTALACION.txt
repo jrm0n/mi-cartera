@@ -1,27 +1,22 @@
-v0.9.0 - Rentabilidad auditable y análisis avanzado
+v0.9.1 - Indicadores de rentabilidad simplificados
 
 No requiere SQL nuevo.
 
 Orden de instalación:
 1. Publica app.js, index.html, config.js, sw.js y version.json en la raíz del repositorio de GitHub.
-2. Abre la app y fuerza una recarga para que el móvil instale la versión 0.9.0.
+2. Abre la app y fuerza una recarga para que el móvil instale la versión 0.9.1.
 3. Pulsa "Actualizar cartera" una sola vez: se actualizarán los instrumentos de todos los perfiles.
 
 No es necesario ejecutar ninguna migración ni modificar la Edge Function para instalar esta versión.
 
 Cambios principales:
-- Un único motor calcula Inicio, Posiciones, detalle y Análisis con los mismos datos y criterios.
-- Análisis permite alternar entre Valor €, rentabilidad TWR y rentabilidad simple.
-- Añade Resultado en €, rentabilidad simple, TWR y XIRR anualizada, con desglose auditable de valor inicial, aportaciones, retiradas y valor final.
-- Valor € muestra el patrimonio y los saltos producidos por aportaciones, retiradas y nuevos fondos.
-- TWR elimina el efecto del tamaño y momento de los flujos; XIRR usa sus fechas exactas.
-- Cada Base anual se toma como valor de apertura del 1 de enero, no como aportación de ese año.
-- Añade atribución del resultado por fondo, banco y temática.
-- Añade marcadores de flujos y lectura táctil del gráfico por fecha.
-- Añade un centro de calidad para cotizaciones atrasadas, operaciones pendientes, histórico insuficiente, aproximaciones y cambios de divisa ausentes.
-- Las posiciones en divisas distintas del euro se valoran históricamente con cambios diarios del BCE; si faltan, se muestra N/D en vez de falsear el rendimiento.
-- Periodos disponibles: 1D, 1M, 3M, 6M, 1A, YTD, 2A, 3A, 5A y Desde inicio.
-- El filtro permite ver toda la cartera activa o una entidad bancaria concreta.
+- La cabecera de Análisis muestra únicamente Resultado en euros, TWR acumulada y XIRR anualizada.
+- Se elimina la rentabilidad simple de las tarjetas, del detalle y de las opciones del gráfico para evitar duplicidad visual.
+- La rentabilidad simple permanece disponible dentro de "Ver cálculo y operaciones incluidas" como dato auxiliar auditable.
+- El gráfico conserva Valor € y TWR acumulada para todos los periodos.
+- TWR se identifica expresamente como acumulada para el periodo seleccionado.
+- XIRR se identifica expresamente como anualizada e incluye el aviso de que no es una previsión.
+- Inicio, Posiciones, detalle y Análisis continúan usando el mismo motor financiero.
 
 No sustituyas ni ejecutes archivos SQL: el esquema de datos sigue siendo el 10.
 

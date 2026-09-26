@@ -1,3 +1,11 @@
+v0.9.1 - 2026-09-26
+- Simplifica los indicadores visibles a Resultado en euros, TWR acumulada y XIRR anualizada.
+- Elimina la rentabilidad simple de la cabecera, tarjetas, detalle y selector del gráfico.
+- Conserva la rentabilidad simple únicamente en el desglose auditable de "Ver cálculo".
+- Aclara que TWR es acumulada para el periodo y que XIRR es anualizada y no constituye una previsión.
+- Mantiene el mismo motor para Inicio, Posiciones, detalle y Análisis.
+- No requiere SQL nuevo ni cambios de esquema.
+
 v0.9.0 - 2026-09-26
 - Unifica el cálculo de Inicio, Posiciones, detalle y Análisis en un motor común.
 - Incorpora cuatro lecturas separadas: resultado en euros, rentabilidad simple, TWR y XIRR anualizada.
