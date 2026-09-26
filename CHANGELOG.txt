@@ -1,3 +1,14 @@
+v0.9.2 - 2026-09-26
+- Convierte la atribución en un navegador por fondo, banco y temática.
+- Sincroniza cada selección con los indicadores, el gráfico, los movimientos, la calidad de datos y la distribución temática.
+- Añade una barra de alcance con regreso al banco seleccionado o a toda la cartera.
+- Sustituye la tabla por tarjetas táctiles en móvil.
+- Añade una línea temporal pulsable de movimientos y detalle de su efecto patrimonial y tratamiento en TWR.
+- Permite abrir el detalle pulsando los marcadores del gráfico.
+- Muestra la Base 2026 como movimiento inicial sin duplicarla como aportación del periodo.
+- Corrige la detección de aportaciones recurrentes pendientes dentro del centro de calidad.
+- No requiere SQL nuevo ni cambios de esquema.
+
 v0.9.1 - 2026-09-26
 - Simplifica los indicadores visibles a Resultado en euros, TWR acumulada y XIRR anualizada.
 - Elimina la rentabilidad simple de la cabecera, tarjetas, detalle y selector del gráfico.

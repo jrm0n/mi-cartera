@@ -1,22 +1,23 @@
-v0.9.1 - Indicadores de rentabilidad simplificados
+v0.9.2 - Análisis navegable
 
 No requiere SQL nuevo.
 
 Orden de instalación:
 1. Publica app.js, index.html, config.js, sw.js y version.json en la raíz del repositorio de GitHub.
-2. Abre la app y fuerza una recarga para que el móvil instale la versión 0.9.1.
+2. Abre la app y fuerza una recarga para que el móvil instale la versión 0.9.2.
 3. Pulsa "Actualizar cartera" una sola vez: se actualizarán los instrumentos de todos los perfiles.
 
 No es necesario ejecutar ninguna migración ni modificar la Edge Function para instalar esta versión.
 
 Cambios principales:
-- La cabecera de Análisis muestra únicamente Resultado en euros, TWR acumulada y XIRR anualizada.
-- Se elimina la rentabilidad simple de las tarjetas, del detalle y de las opciones del gráfico para evitar duplicidad visual.
-- La rentabilidad simple permanece disponible dentro de "Ver cálculo y operaciones incluidas" como dato auxiliar auditable.
-- El gráfico conserva Valor € y TWR acumulada para todos los periodos.
-- TWR se identifica expresamente como acumulada para el periodo seleccionado.
-- XIRR se identifica expresamente como anualizada e incluye el aviso de que no es una previsión.
-- Inicio, Posiciones, detalle y Análisis continúan usando el mismo motor financiero.
+- Los fondos de la atribución son pulsables y filtran el resultado, el gráfico, los movimientos, la calidad y la distribución temática.
+- Los botones por banco y temática aplican el mismo desglose navegable.
+- La barra "Analizando" muestra el alcance activo y permite volver al banco o a toda la cartera.
+- En móvil, la tabla de atribución se transforma en tarjetas táctiles sin desplazamiento horizontal.
+- Los movimientos del periodo aparecen como una línea temporal pulsable con fecha, tipo, fondo, banco, importe y tratamiento en TWR.
+- Los marcadores del gráfico también abren el movimiento cuando se pulsa cerca de ellos.
+- La Base 2026 aparece como valor inicial del periodo y no se vuelve a contar como aportación posterior.
+- Se conserva la coherencia de Resultado, TWR y XIRR entre Inicio, Posiciones, detalle y Análisis.
 
 No sustituyas ni ejecutes archivos SQL: el esquema de datos sigue siendo el 10.
 

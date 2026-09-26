@@ -1,5 +1,5 @@
 window.MI_CARTERA_CONFIG = {
-  appVersion: "0.9.1",
+  appVersion: "0.9.2",
   cloud: {
     provider: "supabase",
     enabled: true,

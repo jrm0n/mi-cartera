@@ -1,4 +1,4 @@
-MI CARTERA v0.9.1 - CRITERIOS DE CALCULO
+MI CARTERA v0.9.2 - CRITERIOS DE CALCULO
 
 0. Separacion por cartera
    Cada cuenta bancaria pertenece a una única cartera mediante portfolio_id.
@@ -95,3 +95,11 @@ MI CARTERA v0.9.1 - CRITERIOS DE CALCULO
    Si falta un cambio histórico necesario, el periodo queda incompleto y no se fabrica una rentabilidad.
    La atribución muestra resultado por fondo, banco y temática. Los puntos porcentuales se calculan contra el capital simple agregado; los TWR individuales no se suman.
    El centro de calidad avisa de cotizaciones atrasadas o provisionales, mercados y cambios ausentes, operaciones pendientes, históricos incompletos y series aproximadas.
+
+15. Navegacion del analisis
+   La atribución permite seleccionar toda la cartera, un banco, una temática o un fondo concreto.
+   La selección se aplica al resultado en EUR, TWR, XIRR, gráfico, movimientos, calidad de datos y distribución temática.
+   La atribución siempre conserva como referencia el capital del banco o cartera desde el que se ha iniciado el desglose.
+   En móvil, los fondos se presentan como tarjetas táctiles; en escritorio se conserva la tabla.
+   Los movimientos mostrados incluyen el valor inicial del periodo. Ese movimiento inicial forma parte de la apertura y no se contabiliza de nuevo como aportación.
+   Los movimientos posteriores explican su efecto en el patrimonio y se neutralizan al calcular TWR.

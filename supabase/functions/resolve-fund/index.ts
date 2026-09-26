@@ -112,7 +112,7 @@ async function fetchVdos(isin: string) {
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.9.1; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.9.2; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
@@ -219,7 +219,7 @@ async function fetchLfdeOfficialSeries(isin: string): Promise<OfficialSeriesResu
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.9.1; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.9.2; personal portfolio resolver)",
         "Accept": "text/csv,text/plain,application/octet-stream,*/*",
         "Cache-Control": "no-cache",
       },
