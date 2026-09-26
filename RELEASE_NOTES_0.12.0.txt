@@ -1,0 +1,27 @@
+Mi Cartera v0.12.0 · restauración limitada al usuario en el mismo proyecto
+
+Instalación (en este orden):
+1. Conservar una copia de seguridad independiente de Supabase antes de cualquier ensayo.
+2. Ejecutar 016_restore_user_backup_v0.12.0.sql en SQL Editor. Crea una función;
+   no borra ni modifica los datos existentes al instalarla.
+3. Publicar todos los archivos del ZIP en GitHub y recargar la PWA.
+4. La Edge Function resolve-fund no ha cambiado desde v0.11.0.
+   No hay cambio del esquema de tablas: DATA_SCHEMA_VERSION sigue siendo 10.
+
+Uso de Restaurar copia:
+- Utiliza una copia JSON creada con v0.11.1 o posterior.
+- La copia debe pertenecer al mismo usuario y proyecto Supabase.
+- Los fondos, cotizaciones ETF e instituciones referenciados deben seguir
+  disponibles en ese proyecto. No sirve para recrear un proyecto eliminado.
+- La cuenta de destino debe estar vacía. Se permite únicamente la cartera por
+  defecto vacía que la aplicación crea al iniciar sesión; se sustituirá por
+  las carteras originales al restaurar.
+- Primero se llama a la función en modo de comprobación, sin escrituras.
+  Después se solicitan dos confirmaciones y se realiza una única transacción.
+  Cualquier error de restricción revierte toda la operación.
+- No se ha probado contra la base real del usuario ni un entorno de ensayo.
+  Antes de confiar en ella, probar con una cuenta de ensayo y copia separada.
+
+La opción «Comprobar copia» continúa sin escribir datos. La exportación y la
+paginación de v0.11.1 se conservan. Ejecutar pruebas locales con:
+node --test tests/*.test.cjs

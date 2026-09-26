@@ -1,4 +1,4 @@
-MI CARTERA v0.11.1 - CRITERIOS DE CALCULO (esquema 10)
+MI CARTERA v0.12.0 - CRITERIOS DE CALCULO (esquema 10)
 
 0. Separacion por cartera
    Cada cuenta bancaria pertenece a una única cartera mediante portfolio_id.

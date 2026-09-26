@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const { webcrypto } = require('node:crypto');
 const root = path.resolve(__dirname, '..');
 
-function loadApp() {
+function loadApp(config={cloud:{}},skipInit=false) {
   const elements = new Map();
   const element = id => {
     if (!elements.has(id)) elements.set(id, {
@@ -27,10 +27,12 @@ function loadApp() {
     addEventListener(){},
   };
   context.window = context;
-  context.MI_CARTERA_CONFIG = { cloud: {} };
+  context.MI_CARTERA_CONFIG = config;
   vm.createContext(context);
   for (const file of ['version.js', 'core.js', 'analysis.js', 'operations.js', 'market.js', 'app.js']) {
-    vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context, { filename: file });
+    let source=fs.readFileSync(path.join(root, file), 'utf8');
+    if(file==='app.js'&&skipInit)source=source.replace(/\ninit\(\);\s*$/, '\n');
+    vm.runInContext(source, context, { filename: file });
   }
   return context;
 }
@@ -38,7 +40,7 @@ const app = loadApp();
 const evalInApp = expression => vm.runInContext(expression, app);
 
 test('la versión y las funciones esenciales cargan con el orden publicado', () => {
-  assert.equal(evalInApp('APP_VERSION'), '0.11.1');
+  assert.equal(evalInApp('APP_VERSION'), '0.12.0');
   assert.equal(typeof app.exportBackup, 'function');
   assert.equal(typeof app.retryRefreshTarget, 'function');
 });
@@ -84,4 +86,28 @@ test('la comprobación detecta una copia alterada y referencias huérfanas', asy
   app.__content=content;
   app.__backup.payloadSha256=await evalInApp('backupDigest(__content)');
   await assert.rejects(evalInApp('validateBackupPayload(__backup)'), /sin cuenta/);
+});
+
+test('la restauración comprueba primero y exige las dos confirmaciones antes de escribir', async () => {
+  const target=loadApp({cloud:{url:'https://project.supabase.co',publishableKey:'public'}},true);
+  target.__backup={
+    app:'Mi Cartera',formatVersion:2,schemaVersion:10,ownerId:'u',cloudProject:'https://project.supabase.co',
+    tables:{portfolios:[{id:'p',user_id:'u'}],accounts:[],operations:[],transfers:[],recurring_operations:[]},
+  };
+  target.__backup.payloadSha256=await vm.runInContext('backupDigest(__backup)',target);
+  vm.runInContext('session={user:{id:"u"}}',target);
+  target.__calls=[];
+  const counts={portfolios:1,accounts:0,operations:0,transfers:0,recurring_operations:0};
+  target.__preflight={ready:true,dry_run:true,counts};
+  target.__actual={ready:true,dry_run:false,counts};
+  vm.runInContext('rest=async (_path,options)=>{const args=JSON.parse(options.body);__calls.push(args.p_dry_run);return args.p_dry_run?__preflight:__actual};syncFromCloud=async()=>true',target);
+  const input={files:[{text:async()=>JSON.stringify(target.__backup)}],value:'backup.json'};
+  target.confirm=()=>false;
+  await target.restoreBackupFile(input);
+  assert.deepEqual(target.__calls,[true]);
+  target.__calls.length=0;
+  target.confirm=()=>true;
+  target.prompt=()=> 'RESTAURAR';
+  await target.restoreBackupFile(input);
+  assert.deepEqual(target.__calls,[true,false]);
 });

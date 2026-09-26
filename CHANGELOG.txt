@@ -1,3 +1,10 @@
+v0.12.0 - 2026-09-26
+- Añade restauración de copias v2 para el mismo usuario y proyecto Supabase.
+- Requiere ejecutar la migración 016 antes de usar Restaurar copia.
+- Realiza una comprobación sin escrituras, exige doble confirmación y rechaza destinos con datos.
+- La función SQL restaura carteras, cuentas, traspasos, operaciones y recurrencias en una transacción.
+- No restaura cotizaciones ni un proyecto Supabase eliminado. Esquema de datos 10.
+
 v0.11.1 - 2026-09-26
 - Pagina todas las tablas consultadas y rechaza respuestas truncadas.
 - Exporta una copia con tablas completas del usuario y huella de integridad.

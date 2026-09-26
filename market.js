@@ -39,16 +39,19 @@ async function backupDigest(tables){
 }
 function backupRelations(tables,ownerId=null){
  const ids=name=>new Set(tables[name].map(row=>row.id));
- const portfolioIds=ids('portfolios'),accountIds=ids('accounts');
+ const portfolioIds=ids('portfolios'),accountIds=ids('accounts'),transferIds=ids('transfers');
  for(const name of BACKUP_TABLES){
   if(tables[name].some(row=>!row||typeof row.id!=='string'||!row.id))throw new Error(`Hay registros sin identificador en ${name}.`);
   if(ids(name).size!==tables[name].length)throw new Error(`Hay identificadores repetidos en ${name}.`);
   if(ownerId&&tables[name].some(row=>row.user_id&&row.user_id!==ownerId))throw new Error(`Hay registros de otro usuario en ${name}.`);
  }
  for(const a of tables.accounts)if(!portfolioIds.has(a.portfolio_id))throw new Error('Hay cuentas sin cartera en la copia.');
- for(const o of tables.operations)if(!accountIds.has(o.account_id))throw new Error('Hay operaciones sin cuenta en la copia.');
+ for(const o of tables.operations){
+  if(!accountIds.has(o.account_id))throw new Error('Hay operaciones sin cuenta en la copia.');
+  if(o.transfer_id&&!transferIds.has(o.transfer_id))throw new Error('Hay operaciones con un traspaso ajeno a la copia.');
+ }
  for(const t of tables.transfers)if(!accountIds.has(t.from_account_id)||!accountIds.has(t.to_account_id))throw new Error('Hay traspasos sin cuenta en la copia.');
- for(const r of tables.recurring_operations)if(!portfolioIds.has(r.portfolio_id)||!accountIds.has(r.account_id))throw new Error('Hay aportaciones recurrentes sin cartera o cuenta en la copia.');
+ for(const r of tables.recurring_operations)if(!portfolioIds.has(r.portfolio_id)||!accountIds.has(r.account_id)||tables.accounts.find(a=>a.id===r.account_id)?.portfolio_id!==r.portfolio_id)throw new Error('Hay aportaciones recurrentes sin cartera o cuenta válida en la copia.');
 }
 async function validateBackupPayload(payload){
  if(!payload||payload.app!=='Mi Cartera'||payload.schemaVersion!==DATA_SCHEMA_VERSION)throw new Error('El archivo no corresponde al esquema de datos de esta versión.');
@@ -90,4 +93,42 @@ async function verifyBackupFile(input){
   backupStatus(`Archivo íntegro (${origin}): ${counts.portfolios} carteras, ${counts.accounts} cuentas, ${counts.operations} operaciones, ${counts.transfers} traspasos y ${counts.recurring_operations} reglas. Comprobación local: no se ha restaurado en Supabase.`);
  }catch(err){backupStatus('Copia no verificable: '+err.message,true)}
  finally{input.value=''}
+}
+function restoreErrorMessage(err){
+ const raw=String(err?.message||err||'');
+ if(raw.includes('BACKUP_TARGET_NOT_EMPTY'))return 'La cartera ya contiene cuentas u operaciones. No se ha modificado nada.';
+ if(raw.includes('BACKUP_MISSING_FUND'))return 'Falta algún fondo en esta base de datos. No se ha modificado nada.';
+ if(raw.includes('BACKUP_MISSING_LISTING'))return 'Falta alguna cotización de ETF en esta base de datos. No se ha modificado nada.';
+ if(raw.includes('BACKUP_MISSING_INSTITUTION'))return 'Falta alguna entidad financiera en esta base de datos. No se ha modificado nada.';
+ if(raw.includes('PGRST202')||raw.includes('restore_user_backup_v1'))return 'Falta instalar la migración 016_restore_user_backup_v0.12.0.sql.';
+ return raw;
+}
+async function restoreBackupFile(input){
+ const file=input?.files?.[0];if(!file)return;
+ const button=document.getElementById('restoreBackupBtn');if(button)button.disabled=true;
+ try{
+  if(!session?.user?.id)throw new Error('Inicia sesión antes de restaurar.');
+  const payload=JSON.parse(await file.text()),check=await validateBackupPayload(payload);
+  if(check.legacy)throw new Error('Esta copia antigua no admite restauración automática.');
+  if(payload.ownerId!==session.user.id||payload.cloudProject!==SUPABASE_URL)throw new Error('La copia pertenece a otro usuario o proyecto Supabase.');
+  const restoreData={app:payload.app,formatVersion:payload.formatVersion,schemaVersion:payload.schemaVersion,ownerId:payload.ownerId,tables:payload.tables};
+  backupStatus('Comprobando la restauración sin escribir datos…');
+  const preview=await rpc('restore_user_backup_v1',{p_backup:restoreData,p_dry_run:true});
+  if(preview?.ready!==true||preview?.dry_run!==true)throw new Error('La comprobación del servidor no se completó.');
+  const c=check.counts;
+  if(BACKUP_TABLES.some(name=>Number(preview.counts?.[name])!==c[name]))throw new Error('Los recuentos del servidor no coinciden con la copia.');
+  if(!confirm(`La cartera de destino está vacía y la copia es válida. Se restaurarán ${c.portfolios} carteras, ${c.accounts} cuentas, ${c.operations} operaciones, ${c.transfers} traspasos y ${c.recurring_operations} reglas. ¿Continuar?`)){
+   backupStatus('Restauración cancelada sin cambios.');return;
+  }
+  if(prompt('Para confirmar la restauración escribe RESTAURAR:')!=='RESTAURAR'){
+   backupStatus('Restauración cancelada sin cambios.');return;
+  }
+  backupStatus('Restaurando en Supabase…');
+  const result=await rpc('restore_user_backup_v1',{p_backup:restoreData,p_dry_run:false});
+  if(result?.ready!==true||result?.dry_run!==false)throw new Error('El servidor no confirmó la restauración.');
+  if(BACKUP_TABLES.some(name=>Number(result.counts?.[name])!==c[name]))throw new Error('La restauración terminó, pero los recuentos devueltos no coinciden. No repitas la importación; sincroniza la cartera.');
+  if(!await syncFromCloud(false))throw new Error('La restauración terminó, pero no se pudo volver a leer Supabase. No repitas la importación; vuelve a sincronizar.');
+  backupStatus('Restauración completada y cartera leída de Supabase.');
+ }catch(err){backupStatus('No se pudo restaurar: '+restoreErrorMessage(err),true)}
+ finally{input.value='';if(button)button.disabled=false}
 }
