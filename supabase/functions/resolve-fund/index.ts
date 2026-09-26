@@ -112,13 +112,20 @@ async function fetchVdos(isin: string) {
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.9.2; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.10.0; personal portfolio resolver)",
         "Accept": "text/html,application/xhtml+xml",
       },
       redirect: "follow",
     });
-    if (!response.ok) return { sourceUrl, ok: false, status: response.status, category: null, manager: null, benchmark: null, nav: null, navDate: null, navCurrency: null };
-    const text = decodeHtml(await response.text());
+    if (!response.ok) return { sourceUrl, ok: false, status: response.status, name: null, category: null, manager: null, benchmark: null, nav: null, navDate: null, navCurrency: null };
+    const html = await response.text();
+    const text = decodeHtml(html);
+    const h2 = html.match(/<h2\b[^>]*>([\s\S]*?)<\/h2>/i);
+    const title = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
+    const rawName = decodeHtml(h2?.[1] ?? title?.[1] ?? "")
+      .replace(/\s*[-|·]\s*(?:Quefondos|VDOS).*$/i, "")
+      .trim();
+    const name = cleanField(rawName, 200);
     const category = cleanField(between(text, /Categoría VDOS\s*:?\s*/i, /Rating VDOS\s*:?/i));
     const manager = cleanField(between(text, /Gestora\s*:?\s*/i, /Categoría VDOS\s*:?/i));
     const benchmark = cleanField(between(text, /Referencia\s*:?\s*/i, /Última valoración|Valor liquidativo|Rentabilidades|Política de inversión/i));
@@ -130,9 +137,9 @@ async function fetchVdos(isin: string) {
     const navDate = dateMatch
       ? `${dateMatch[3]}-${String(dateMatch[2]).padStart(2,"0")}-${String(dateMatch[1]).padStart(2,"0")}`
       : null;
-    return { sourceUrl:response.url || sourceUrl, ok: !!(category || manager || benchmark || (nav && navDate)), status: response.status, category, manager, benchmark, nav, navDate, navCurrency };
+    return { sourceUrl:response.url || sourceUrl, ok: !!(name || category || manager || benchmark || (nav && navDate)), status: response.status, name, category, manager, benchmark, nav, navDate, navCurrency };
   } catch (error) {
-    return { sourceUrl, ok: false, error: String(error), category: null, manager: null, benchmark: null, nav: null, navDate: null, navCurrency: null };
+    return { sourceUrl, ok: false, error: String(error), name: null, category: null, manager: null, benchmark: null, nav: null, navDate: null, navCurrency: null };
   }
 }
 
@@ -213,13 +220,13 @@ type OfficialSeriesResult = {
  * Adding support for another management company only requires a new adapter;
  * the freshness comparison and database writes below remain unchanged.
  */
-async function fetchLfdeOfficialSeries(isin: string): Promise<OfficialSeriesResult> {
+async function fetchOfficialCsvSeries(isin: string): Promise<OfficialSeriesResult> {
   const source = "La Financière de l'Echiquier · histórico oficial";
   const sourceUrl = `https://cdn.lfde.com/xml/${encodeURIComponent(isin)}.csv`;
   try {
     const response = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.9.2; personal portfolio resolver)",
+        "User-Agent": "Mozilla/5.0 (compatible; MiCartera/0.10.0; personal portfolio resolver)",
         "Accept": "text/csv,text/plain,application/octet-stream,*/*",
         "Cache-Control": "no-cache",
       },
@@ -255,16 +262,10 @@ async function fetchLfdeOfficialSeries(isin: string): Promise<OfficialSeriesResu
   }
 }
 
-async function fetchOfficialFundSeries(input: {
-  isin: string;
-  name?: string | null;
-  manager?: string | null;
-}): Promise<OfficialSeriesResult> {
-  const identity = `${input.name ?? ""} ${input.manager ?? ""}`;
-  if (/\b(?:LFDE|Echiquier|Financi[eè]re de l['’ ]Echiquier)\b/i.test(identity)) {
-    return await fetchLfdeOfficialSeries(input.isin);
-  }
-  return { ok:false, source:null, sourceUrl:null, currency:null, rows:[], reason:"NO_OFFICIAL_ADAPTER" };
+async function fetchOfficialFundSeries(isin: string): Promise<OfficialSeriesResult> {
+  // El adaptador se intenta para cualquier ISIN y valida que el propio archivo
+  // declare exactamente ese ISIN. No hay listas de fondos ni reglas por nombre.
+  return await fetchOfficialCsvSeries(isin);
 }
 
 function calendarAgeDays(date: string | null | undefined) {
@@ -273,6 +274,19 @@ function calendarAgeDays(date: string | null | undefined) {
   const today = new Date();
   const utcToday = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
   return Math.max(0, Math.floor((utcToday - quote) / 86400000));
+}
+
+function validCurrency(value: unknown) {
+  return /^[A-Z]{3}$/.test(String(value ?? "").toUpperCase());
+}
+
+function validQuoteDate(value: unknown) {
+  const date=String(value??"");
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return false;
+  const time=new Date(`${date}T00:00:00Z`).getTime();
+  if(!Number.isFinite(time))return false;
+  const tomorrow=new Date();tomorrow.setUTCDate(tomorrow.getUTCDate()+1);tomorrow.setUTCHours(23,59,59,999);
+  return time<=tomorrow.getTime();
 }
 
 async function fetchTradegate(isin: string) {
@@ -610,21 +624,21 @@ Deno.serve(async (req: Request) => {
 
     async function ensureListingHistory(listing:any, fullHistory:boolean, refreshRecent:boolean) {
       const symbol=String(listing.provider_symbol);
-      const exact=await db(`listing_prices?provider_symbol=eq.${encodeURIComponent(symbol)}&is_approximate=eq.false&select=price_date,price,currency,source,fetched_at&order=price_date.asc&limit=2500`);
+      const exact=await db(`listing_prices?provider_symbol=eq.${encodeURIComponent(symbol)}&is_approximate=eq.false&select=price_date,price,currency,source,fetched_at&order=price_date.asc&limit=10000`);
       const exactRows=Array.isArray(exact)?exact:[];
       const oldest=exactRows[0]?.price_date??null;
-      const threshold=new Date();threshold.setUTCDate(threshold.getUTCDate()-330);
+      const threshold=new Date();threshold.setUTCFullYear(threshold.getUTCFullYear()-5);threshold.setUTCDate(threshold.getUTCDate()+14);
       const useful=oldest&&new Date(`${oldest}T00:00:00Z`)<=threshold;
       if((fullHistory&&!useful)||refreshRecent){
         const from=new Date();
-        if(fullHistory&&!useful){from.setUTCFullYear(from.getUTCFullYear()-1);from.setUTCDate(from.getUTCDate()-7)}
+        if(fullHistory&&!useful){from.setUTCFullYear(1900,0,1);from.setUTCHours(0,0,0,0)}
         else from.setUTCDate(from.getUTCDate()-10);
         const fetched=await fetchEodSeries(symbol,from.toISOString().slice(0,10));
         if(!fetched.ok) return {ok:false,error:"EODHD_HISTORY_FAILED",status:fetched.status,details:fetched.details,rows:exactRows,fetched:false,inserted:0};
         const now=new Date().toISOString();
         const rows=fetched.rows.map((x:any)=>({provider_symbol:symbol,price_date:x.date,price:x.price,currency:listing.currency||null,source:"EODHD EOD API",fetched_at:now,is_approximate:false,proxy_symbol:null,calibration_factor:null,approximation_method:null,calibration_date:null}));
         for(let i=0;i<rows.length;i+=250) await db(`listing_prices?on_conflict=provider_symbol,price_date`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(rows.slice(i,i+250))});
-        const all=await db(`listing_prices?provider_symbol=eq.${encodeURIComponent(symbol)}&is_approximate=eq.false&select=price_date,price,currency,source,fetched_at&order=price_date.asc&limit=2500`);
+        const all=await db(`listing_prices?provider_symbol=eq.${encodeURIComponent(symbol)}&is_approximate=eq.false&select=price_date,price,currency,source,fetched_at&order=price_date.asc&limit=10000`);
         return {ok:true,rows:Array.isArray(all)?all:rows,fetched:true,inserted:rows.length};
       }
       return {ok:true,rows:exactRows,fetched:false,inserted:0};
@@ -635,19 +649,44 @@ Deno.serve(async (req: Request) => {
     let listings:any[] = await db(`instrument_listings?isin=eq.${encodeURIComponent(isin)}&select=provider_symbol,isin,ticker,exchange_code,exchange_name,currency,instrument_type,is_primary,source,fetched_at,valuation_source_url,valuation_source_name,valuation_source_checked_at&order=is_primary.desc,exchange_code.asc,ticker.asc`);
     if(!Array.isArray(listings)) listings=[];
 
+    const diagnostics:any[]=[];
+    let vdos:any={ok:false,attempted:false,sourceUrl:null,name:null,category:null,manager:null,benchmark:null,nav:null,navDate:null,navCurrency:null};
+    let finect:any={ok:false,attempted:false,sourceUrl:null,category:null,manager:null,benchmark:null};
+    async function ensureVdos(){
+      if(vdos.attempted)return vdos;
+      vdos={...(await fetchVdos(isin)),attempted:true};
+      diagnostics.push({source:"VDOS/Quefondos",ok:vdos.ok===true,status:vdos.status??null,detail:vdos.ok?"Ficha localizada":(vdos.error||"Sin datos válidos"),url:vdos.sourceUrl??null});
+      return vdos;
+    }
+
     let searchResults:any[]=[];
+    let searchFailure:any=null;
     const wantsTradegateRefresh = refreshQuote && String(requestedListingSymbol||"").startsWith("TRADEGATE:");
     const needSearch = forceMetadata || wantsTradegateRefresh || !existing || !listings.some(l=>l.source === "EODHD Search API") || !existing?.name || existing?.name===isin;
     if(needSearch){
       const searchUrl=new URL(`https://eodhd.com/api/search/${encodeURIComponent(isin)}`);
       searchUrl.searchParams.set("api_token",eodhdToken); searchUrl.searchParams.set("fmt","json"); searchUrl.searchParams.set("limit","50");
-      const searchResponse=await fetch(searchUrl);
-      if(!searchResponse.ok) return json({ok:false,error:"EODHD_SEARCH_FAILED",status:searchResponse.status},502);
-      const results=await searchResponse.json(); if(!Array.isArray(results)) return json({ok:false,error:"EODHD_INVALID_SEARCH_RESPONSE"},502);
-      const seen=new Set<string>();
-      searchResults=results.filter((r:any)=>{ if(normalizeIsin(r?.ISIN)!==isin||!r?.Code||!r?.Exchange)return false; const symbol=`${r.Code}.${r.Exchange}`; if(seen.has(symbol))return false; seen.add(symbol); return true; });
-      if(!searchResults.length && !existing) return json({ok:false,error:"INSTRUMENT_NOT_FOUND",isin},404);
+      try{
+        const searchResponse=await fetch(searchUrl);
+        if(!searchResponse.ok){searchFailure={error:"EODHD_SEARCH_FAILED",status:searchResponse.status};}
+        else{
+          const results=await searchResponse.json();
+          if(!Array.isArray(results))searchFailure={error:"EODHD_INVALID_SEARCH_RESPONSE",status:502};
+          else{
+            const seen=new Set<string>();
+            searchResults=results.filter((r:any)=>{ if(normalizeIsin(r?.ISIN)!==isin||!r?.Code||!r?.Exchange)return false; const symbol=`${r.Code}.${r.Exchange}`; if(seen.has(symbol))return false; seen.add(symbol); return true; });
+          }
+        }
+      }catch(error){searchFailure={error:"EODHD_SEARCH_UNAVAILABLE",status:502,details:String(error)}}
+      diagnostics.push({source:"EODHD Search API",ok:searchResults.length>0,status:searchFailure?.status??200,detail:searchResults.length?`${searchResults.length} cotizaciones localizadas`:(searchFailure?.error||"ISIN no localizado")});
+      if((searchFailure||!searchResults.length)&&!existing)await ensureVdos();
+      if(!searchResults.length&&!existing&&!vdos.ok)return json({ok:false,error:searchFailure?.error||"INSTRUMENT_NOT_FOUND",status:searchFailure?.status??404,isin,diagnostics},searchFailure?502:404);
       const nowIso=new Date().toISOString();
+      // El fondo maestro debe existir antes que sus cotizaciones. Así el alta de
+      // cualquier ISIN no depende de crear previamente un registro desde el cliente.
+      const shellName=String(searchResults[0]?.Name??vdos.name??isin).trim()||isin;
+      const shellCurrency=String(searchResults[0]?.Currency??vdos.navCurrency??existing?.currency??"EUR").toUpperCase();
+      await db(`funds?on_conflict=isin`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({isin,name:shellName,currency:/^[A-Z]{3}$/.test(shellCurrency)?shellCurrency:"EUR",theme:existing?.theme||"Sin clasificar",data_provider:searchResults.length?"EODHD":"VDOS/Quefondos",metadata_source:searchResults.length?"EODHD Search API":"VDOS/Quefondos",metadata_fetched_at:nowIso,active:true})});
       const rows=searchResults.map((r:any)=>({provider_symbol:`${r.Code}.${r.Exchange}`,isin,ticker:String(r.Code),exchange_code:String(r.Exchange),exchange_name:exchangeDisplayName(String(r.Exchange)),currency:r.Currency?String(r.Currency).toUpperCase():null,instrument_type:r.Type?String(r.Type).toUpperCase():null,is_primary:r.isPrimary===true,source:"EODHD Search API",fetched_at:nowIso}));
       if(rows.length) await db(`instrument_listings?on_conflict=provider_symbol`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(rows)});
       const prices=searchResults.filter((r:any)=>r?.previousClose!=null&&r?.previousCloseDate).map((r:any)=>({provider_symbol:`${r.Code}.${r.Exchange}`,price_date:r.previousCloseDate,price:Number(r.previousClose),currency:r.Currency?String(r.Currency).toUpperCase():null,source:"EODHD Search API",fetched_at:nowIso,is_approximate:false,proxy_symbol:null,calibration_factor:null,approximation_method:null,calibration_date:null})).filter((r:any)=>Number.isFinite(r.price)&&r.price>0);
@@ -725,33 +764,38 @@ Deno.serve(async (req: Request) => {
     else if(!requiresListing){ selectedListing=listings.find((l:any)=>l.exchange_code==="EUFUND")??listings.find((l:any)=>l.is_primary===true)??listings[0]??null; }
 
     const selectedSearch=selectedListing?searchResults.find((r:any)=>`${r.Code}.${r.Exchange}`===selectedListing.provider_symbol):null;
-    const name=String(selectedSearch?.Name ?? searchResults[0]?.Name ?? existing?.name ?? isin).trim();
-    const masterCurrency=String(existing?.currency ?? searchResults[0]?.Currency ?? selectedListing?.currency ?? "EUR").toUpperCase();
+    if(!existing?.name||existing?.name===isin||forceMetadata||(!requiresListing&&(includeHistory||refreshQuote)))await ensureVdos();
+    const name=String(selectedSearch?.Name ?? searchResults[0]?.Name ?? vdos.name ?? existing?.name ?? isin).trim();
+    const masterCurrency=String(selectedListing?.currency ?? searchResults[0]?.Currency ?? vdos.navCurrency ?? existing?.currency ?? "EUR").toUpperCase();
     const nowIso=new Date().toISOString();
 
     let category=existing?.category??null, categorySource=existing?.category_source??null, manager=existing?.manager??null, benchmark=existing?.benchmark??null;
-    let vdos:any={ok:false,sourceUrl:null,category:null,manager:null,benchmark:null,nav:null,navDate:null,navCurrency:null}; let finect:any={ok:false,sourceUrl:null,category:null,manager:null,benchmark:null};
     const needsGenericFundQuote=!requiresListing&&(includeHistory||refreshQuote);
     if(forceMetadata||!category||!manager||!benchmark||needsGenericFundQuote){
-      vdos=await fetchVdos(isin); if(vdos.category){category=vdos.category;categorySource="VDOS/Quefondos"} if(!manager&&vdos.manager)manager=vdos.manager;if(!benchmark&&vdos.benchmark)benchmark=vdos.benchmark;
-      if(!category||!manager||!benchmark){ finect=await fetchFinect(isin,name||isin); if(!category&&finect.category){category=finect.category;categorySource="Finect (datos Morningstar)"} if(!manager&&finect.manager)manager=finect.manager;if(!benchmark&&finect.benchmark)benchmark=finect.benchmark; }
+      await ensureVdos(); if(vdos.category){category=vdos.category;categorySource="VDOS/Quefondos"} if(!manager&&vdos.manager)manager=vdos.manager;if(!benchmark&&vdos.benchmark)benchmark=vdos.benchmark;
+      if(!category||!manager||!benchmark){ finect={...(await fetchFinect(isin,name||isin)),attempted:true};diagnostics.push({source:"Finect",ok:finect.ok===true,status:finect.status??null,detail:finect.ok?"Metadatos localizados":(finect.error||"Sin metadatos válidos"),url:finect.sourceUrl??null});if(!category&&finect.category){category=finect.category;categorySource="Finect (datos Morningstar)"} if(!manager&&finect.manager)manager=finect.manager;if(!benchmark&&finect.benchmark)benchmark=finect.benchmark; }
     }
 
-    const fundPayload:Record<string,unknown>={isin,name,currency:masterCurrency,data_provider:"EODHD",provider_symbol:requiresListing?null:(selectedListing?.provider_symbol??null),instrument_type:instrumentType,metadata_source:"EODHD Search API",metadata_fetched_at:nowIso,active:true};
+    const identityProvider=searchResults.length||listings.some((l:any)=>l.source==="EODHD Search API")?"EODHD":(vdos.ok?"VDOS/Quefondos":existing?.data_provider||"Sin fuente");
+    const metadataSource=identityProvider==="EODHD"?"EODHD Search API":(vdos.ok?"VDOS/Quefondos":existing?.metadata_source||null);
+    const fundPayload:Record<string,unknown>={isin,name,currency:/^[A-Z]{3}$/.test(masterCurrency)?masterCurrency:(existing?.currency||"EUR"),data_provider:identityProvider,provider_symbol:requiresListing?null:(selectedListing?.provider_symbol??null),instrument_type:instrumentType,metadata_source:metadataSource,metadata_fetched_at:nowIso,active:true};
     if(!existing)fundPayload.theme="Sin clasificar"; if(category){fundPayload.category=category;fundPayload.category_source=categorySource;fundPayload.category_fetched_at=nowIso} if(manager)fundPayload.manager=manager;if(benchmark)fundPayload.benchmark=benchmark;
     const upserted=await db(`funds?on_conflict=isin`,{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=representation"},body:JSON.stringify(fundPayload)}); const fund=Array.isArray(upserted)?upserted[0]:upserted;
 
     let historyFetched=false,historyRowsInserted=0,historyReason:string|null=null;
     let historyApproximate=false, proxyInfo:any=null;
     const officialSeries:OfficialSeriesResult = (!requiresListing && (includeHistory || refreshQuote))
-      ? await fetchOfficialFundSeries({ isin, name:fund?.name ?? name, manager:fund?.manager ?? manager })
+      ? await fetchOfficialFundSeries(isin)
       : { ok:false, source:null, sourceUrl:null, currency:null, rows:[], reason:"NOT_REQUESTED" };
+    if(!requiresListing&&(includeHistory||refreshQuote))diagnostics.push({source:officialSeries.ok?(officialSeries.source||"Histórico oficial por ISIN"):"Histórico oficial por ISIN",ok:officialSeries.ok,status:officialSeries.status??null,detail:officialSeries.ok?`${officialSeries.rows.length} valores localizados`:(officialSeries.reason||officialSeries.error||"No disponible"),url:officialSeries.sourceUrl??null});
     const officialRows = officialSeries.ok
       ? (includeHistory ? officialSeries.rows : officialSeries.rows.slice(0, 30))
       : [];
-    const vdosQuote = Number(vdos?.nav)>0 && /^\d{4}-\d{2}-\d{2}$/.test(String(vdos?.navDate||""))
+    const vdosCurrency=String(vdos?.navCurrency||masterCurrency).toUpperCase();
+    const vdosQuote = Number(vdos?.nav)>0 && validQuoteDate(vdos?.navDate) && validCurrency(vdosCurrency)
       ? { date:String(vdos.navDate), price:Number(vdos.nav), currency:String(vdos.navCurrency||masterCurrency).toUpperCase(), source:"VDOS/Quefondos · última valoración" }
       : null;
+    if(vdos.attempted&&vdos.ok)diagnostics.push({source:"VDOS/Quefondos · VL",ok:!!vdosQuote,status:vdos.status??null,detail:vdosQuote?`${vdosQuote.date} · ${vdosQuote.price} ${vdosQuote.currency}`:"VL rechazado por fecha, importe o divisa no válidos",url:vdos.sourceUrl??null});
 
     if(selectedListing && (includeHistory || refreshQuote)){
       const targetIsTradegate=isTradegateListing(selectedListing);
@@ -919,6 +963,8 @@ Deno.serve(async (req: Request) => {
       generic_fallback_url:vdos.sourceUrl??null,
     };
 
-    return json({ok:true,isin,fund:{isin,name:fund?.name??name,manager:fund?.manager??manager??null,currency:fund?.currency??masterCurrency,category:fund?.category??category??null,category_source:fund?.category_source??categorySource??null,benchmark:fund?.benchmark??benchmark??null,provider:"EODHD",provider_symbol:requiresListing?null:(selectedListing?.provider_symbol??null),instrument_type:fund?.instrument_type??instrumentType??null,metadata_source:"EODHD Search API"},requires_listing:requiresListing,listings:listings.map((l:any)=>({provider_symbol:l.provider_symbol,ticker:l.ticker,exchange_code:l.exchange_code,exchange_name:l.exchange_name||exchangeDisplayName(l.exchange_code),currency:l.currency,instrument_type:l.instrument_type,is_primary:l.is_primary===true,source:l.source,valuation_source_name:l.valuation_source_name??null})),selected_listing:selectedListing?{provider_symbol:selectedListing.provider_symbol,ticker:selectedListing.ticker,exchange_code:selectedListing.exchange_code,exchange_name:selectedListing.exchange_name||exchangeDisplayName(selectedListing.exchange_code),currency:selectedListing.currency,source:selectedListing.source,valuation_source_name:selectedListing.valuation_source_name??null}:null,latest_nav:latest,quote_status:quoteStatus,history:{requested:includeHistory,fetched:historyFetched,rows_inserted:historyRowsInserted,reason:historyReason,approximate:historyApproximate,proxy:proxyInfo},sources:{identity_nav:latest?.source??(selectedListing&&String(selectedListing.provider_symbol).startsWith("TRADEGATE:")?"Tradegate Exchange":"EODHD"),official_nav_url:officialSeries.sourceUrl,category:fund?.category_source??categorySource??null,manager:vdos.manager?"VDOS/Quefondos":(finect.manager?"Finect":null),benchmark:vdos.benchmark?"VDOS/Quefondos":(finect.benchmark?"Finect (datos Morningstar)":null),vdos_url:vdos.sourceUrl,finect_url:finect.sourceUrl,tradegate_url:tradegate.sourceUrl??null,history_proxy:proxyInfo}});
+    diagnostics.push({source:"Resultado guardado",ok:!!latest&&!quoteStatus.stale,status:null,detail:latest?`${latest.date} · ${latest.nav} ${latest.currency||masterCurrency}${quoteStatus.stale?" · atrasado":""}`:"Sin VL/precio válido",url:null});
+
+    return json({ok:true,isin,fund:{isin,name:fund?.name??name,manager:fund?.manager??manager??null,currency:fund?.currency??masterCurrency,category:fund?.category??category??null,category_source:fund?.category_source??categorySource??null,benchmark:fund?.benchmark??benchmark??null,provider:identityProvider,provider_symbol:requiresListing?null:(selectedListing?.provider_symbol??null),instrument_type:fund?.instrument_type??instrumentType??null,metadata_source:metadataSource},requires_listing:requiresListing,listings:listings.map((l:any)=>({provider_symbol:l.provider_symbol,ticker:l.ticker,exchange_code:l.exchange_code,exchange_name:l.exchange_name||exchangeDisplayName(l.exchange_code),currency:l.currency,instrument_type:l.instrument_type,is_primary:l.is_primary===true,source:l.source,valuation_source_name:l.valuation_source_name??null})),selected_listing:selectedListing?{provider_symbol:selectedListing.provider_symbol,ticker:selectedListing.ticker,exchange_code:selectedListing.exchange_code,exchange_name:selectedListing.exchange_name||exchangeDisplayName(selectedListing.exchange_code),currency:selectedListing.currency,source:selectedListing.source,valuation_source_name:selectedListing.valuation_source_name??null}:null,latest_nav:latest,quote_status:quoteStatus,history:{requested:includeHistory,fetched:historyFetched,rows_inserted:historyRowsInserted,reason:historyReason,approximate:historyApproximate,proxy:proxyInfo},sources:{identity_nav:latest?.source??(selectedListing&&String(selectedListing.provider_symbol).startsWith("TRADEGATE:")?"Tradegate Exchange":identityProvider),official_nav_url:officialSeries.sourceUrl,category:fund?.category_source??categorySource??null,manager:vdos.manager?"VDOS/Quefondos":(finect.manager?"Finect":null),benchmark:vdos.benchmark?"VDOS/Quefondos":(finect.benchmark?"Finect (datos Morningstar)":null),vdos_url:vdos.sourceUrl,finect_url:finect.sourceUrl,tradegate_url:tradegate.sourceUrl??null,history_proxy:proxyInfo},diagnostics});
   } catch(error){ console.error(error); return json({ok:false,error:"UNEXPECTED_ERROR",details:String(error)},500); }
 });
