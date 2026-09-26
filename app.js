@@ -1,4 +1,4 @@
-const APP_VERSION='0.9.3';
+const APP_VERSION='0.10.0';
 const VALIDATION_TOLERANCE_PCT=0.1;
 const DATA_SCHEMA_VERSION=10;
 const CACHE_KEY='mi_cartera_cloud_cache_v2';
@@ -40,7 +40,7 @@ let navHistory={};
 let listingHistory={};
 let session=null;
 let cloudSnapshot=null;
-let state={positions:[],operations:[],calculationOperations:[],recurringRules:[],portfolios:[],activePortfolioId:null,funds:{},listings:{},fxRates:{EUR:{rate:1,date:null,source:'EUR'}},fxHistory:{EUR:[]},group:'entity',opFilter:'all',period:String(new Date().getFullYear()),analysisEntity:'all',analysisRange:'YTD',analysisMetric:'twr',analysisDrill:null,analysisComparisons:[],lastValue:null,lastNavUpdate:null,updatedAt:null};
+let state={positions:[],operations:[],calculationOperations:[],recurringRules:[],portfolios:[],activePortfolioId:null,funds:{},listings:{},fxRates:{EUR:{rate:1,date:null,source:'EUR'}},fxHistory:{EUR:[]},group:'entity',opFilter:'all',period:String(new Date().getFullYear()),analysisEntity:'all',analysisRange:'YTD',analysisMetric:'twr',analysisDrill:null,analysisComparisons:[],refreshReport:null,lastValue:null,lastNavUpdate:null,updatedAt:null};
 
 function formatNumberES(value,minDecimals=2,maxDecimals=2){
  const n=Number(value);if(!Number.isFinite(n))return '—';
@@ -242,7 +242,7 @@ async function edge(name,body,retry=true){
  const res=await fetch(`${SUPABASE_URL}/functions/v1/${name}`,{method:'POST',headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${session.access_token}`,'Content-Type':'application/json'},body:JSON.stringify(body||{})});
  if(res.status===401&&retry){await refreshSession();return edge(name,body,false)}
  const text=await res.text();let data=null;try{data=text?JSON.parse(text):null}catch{data=text}
- if(!res.ok||data?.ok===false){const msg=data?.details||data?.error||data?.message||`HTTP ${res.status}`;throw new Error(msg)}
+ if(!res.ok||data?.ok===false){const msg=data?.details||data?.error||data?.message||`HTTP ${res.status}`,err=new Error(msg);err.code=data?.error||`HTTP_${res.status}`;err.httpStatus=res.status;err.payload=data;throw err}
  return data;
 }
 function validIsin(isin){
@@ -271,29 +271,19 @@ function normalizeListingChoices(isin,list){
  if(!exact)return arr;
  return arr.filter(l=>!isTradegateListing(l)||l.provider_symbol===exact.provider_symbol);
 }
-const VERIFIED_FUND_FALLBACKS={
- 'IE0006TUI4G7':{name:'Polar Capital Smart Energy R EUR Cap',manager:'Polar Capital',currency:'EUR',category:'RVI Energía',benchmark:'MSCI ACWI Net Total Return USD',nav:18.38,date:'2026-09-18',source:'VDOS/Quefondos · respaldo verificado'}
-};
 function missingFundForeignKey(err){const msg=String(err?.message||err||'');return msg.includes('instrument_listings_isin_fkey')||(msg.includes('23503')&&msg.includes('instrument_listings'))}
-function instrumentNotFound(err){return String(err?.message||err||'').toUpperCase().includes('INSTRUMENT_NOT_FOUND')}
 async function registerFundShell(isin,fallback=null){
  const name=fallback?.name||isin,theme=fallback?.category||'Sin clasificar',currency=fallback?.currency||'EUR';
  return rpc('ensure_fund',{p_isin:isin,p_name:name,p_theme:theme,p_currency:currency});
-}
-async function verifiedFallbackResult(isin){
- const f=VERIFIED_FUND_FALLBACKS[isin];if(!f)return null;
- await registerFundShell(isin,f);
- return{fund:{isin,name:f.name,manager:f.manager,currency:f.currency,theme:f.category,category:f.category,benchmark:f.benchmark,instrument_type:'FUND',provider:'VDOS/Quefondos',metadata_source:f.source},latest_nav:{nav:f.nav,date:f.date,currency:f.currency,source:f.source},requires_listing:false,listings:[],selected_listing:null,sources:{metadata:f.source,nav:f.source},fallback:true};
 }
 async function resolveFund(isin,includeHistory=false,forceMetadata=false,listingSymbol=null,refreshQuote=false){
  isin=String(isin||'').trim().toUpperCase();if(!validIsin(isin))throw new Error('ISIN no válido');
  const request={isin,include_history:!!includeHistory,force_metadata:!!forceMetadata,listing_symbol:listingSymbol||null,refresh_quote:!!refreshQuote};let result=null,lastError=null;
  try{result=await edge('resolve-fund',request)}catch(err){lastError=err}
  if(!result&&missingFundForeignKey(lastError)){
-  await registerFundShell(isin,VERIFIED_FUND_FALLBACKS[isin]||null);
+  await registerFundShell(isin,null);
   try{result=await edge('resolve-fund',request);lastError=null}catch(err){lastError=err}
  }
- if(!result&&instrumentNotFound(lastError))result=await verifiedFallbackResult(isin);
  if(!result)throw lastError||new Error('No se pudo identificar el instrumento.');
  const f=result?.fund||{};const old=state.funds?.[isin]||{};const latest=result?.requires_listing?null:(result?.latest_nav||old.latest_nav||null);
  state.funds[isin]={...old,...f,data_provider:f.provider||old.data_provider,provider_symbol:result?.requires_listing?null:(f.provider_symbol||old.provider_symbol),metadata_source:f.metadata_source||old.metadata_source,theme:(old.theme&&old.theme!=='Sin clasificar')?old.theme:(f.category||old.category||'Sin clasificar'),latest_nav:latest,quote_status:result?.quote_status||old.quote_status||null,sources:result?.sources||old.sources||null,requires_listing:!!result?.requires_listing};
@@ -625,7 +615,9 @@ function renderDataQuality(items,range){
  }
  for(const o of state.operations||[])if(o.status==='pending'&&included(o.accountId,o.isin,o.listingSymbol)){issues.push({level:'bad',name:o.isin||o.type,text:`Operación pendiente: ${o.validationStatus||'sin validar'}.`});critical++}
  for(const r of state.operations||[])if(r.type==='Recurrente'&&r.pendingCount>0&&included(r.accountId,r.isin,r.listingSymbol))issues.push({level:'warn',name:meta({isin:r.isin}).name,text:`${r.pendingCount} aportación recurrente pendiente por falta de precio exacto.`});
- el.innerHTML=`<div class="quality-summary"><span class="quality-pill good">${fresh} actualizados</span><span class="quality-pill warn">${stale} atrasados/provisionales</span><span class="quality-pill bad">${critical} críticos</span></div><div class="quality-list">${issues.length?issues.map(x=>`<div class="quality-row"><strong class="${x.level==='bad'?'metric-negative':x.level==='warn'?'pending':'metric-positive'}">${esc(x.name)}</strong><br>${esc(x.text)}</div>`).join(''):'<div class="quality-row"><strong class="metric-positive">Sin incidencias detectadas</strong><br>Cotizaciones recientes y sin operaciones pendientes.</div>'}</div>`
+ const report=state.refreshReport,reportRows=report?.rows||[],reportHtml=report?`<details class="refresh-report"><summary>Última actualización global · ${new Date(report.finishedAt).toLocaleString('es-ES')} · ${report.updated} correctos${report.stale?` · ${report.stale} atrasados`:''}${report.failed?` · ${report.failed} fallidos`:''}</summary><div class="quality-list">${reportRows.map(r=>{const cls=r.status==='updated'?'metric-positive':r.status==='stale'?'pending':'metric-negative',label=r.status==='updated'?'Actualizado':r.status==='stale'?'Atrasado':'Error',detail=r.error||[r.quoteDate,r.source].filter(Boolean).join(' · ')||'Sin detalle',attempts=(r.diagnostics||[]).map(d=>`${d.source}: ${d.ok?'correcto':d.detail||'sin datos'}`).join(' · ');return`<div class="quality-row"><div class="refresh-result-head"><strong>${esc(r.name||r.isin)}</strong><span class="${cls}">${label}</span></div><div>${esc(r.isin)}${r.portfolios?.length?` · ${esc(r.portfolios.join(', '))}`:''}</div><div class="muted">${esc(detail)}</div>${attempts?`<details class="source-attempts"><summary>Fuentes consultadas</summary>${esc(attempts)}</details>`:''}${r.status==='failed'?`<button class="btn small" type="button" data-retry-refresh="${esc(r.key)}">Reintentar</button>`:''}</div>`}).join('')}</div>${report.failed?'<button class="btn small" id="retryFailedRefreshes" type="button">Reintentar todos los fallidos</button>':''}</details>`:'';
+ el.innerHTML=`<div class="quality-summary"><span class="quality-pill good">${fresh} actualizados</span><span class="quality-pill warn">${stale} atrasados/provisionales</span><span class="quality-pill bad">${critical} críticos</span></div><div class="quality-list">${issues.length?issues.map(x=>`<div class="quality-row"><strong class="${x.level==='bad'?'metric-negative':x.level==='warn'?'pending':'metric-positive'}">${esc(x.name)}</strong><br>${esc(x.text)}</div>`).join(''):'<div class="quality-row"><strong class="metric-positive">Sin incidencias detectadas</strong><br>Cotizaciones recientes y sin operaciones pendientes.</div>'}</div>${reportHtml}`;
+ el.querySelectorAll('[data-retry-refresh]').forEach(button=>button.addEventListener('click',()=>retryRefreshKeys([button.dataset.retryRefresh])));el.querySelector('#retryFailedRefreshes')?.addEventListener('click',()=>retryRefreshKeys((state.refreshReport?.rows||[]).filter(x=>x.status==='failed').map(x=>x.key)));
 }
 let activeAnalysisMovementKey=null;
 function analysisMovementKey(e,index){return `${e.id||e.kind||'movement'}|${e.date}|${index}`}
@@ -848,13 +840,28 @@ function setRefreshProgress(running,message,current=0,totalCount=0,kind='ok'){
 function allPortfolioMarketPositions(){
  if(!cloudSnapshot)return state.positions||[];const activePortfolioIds=new Set((state.portfolios||[]).filter(p=>p.active!==false).map(p=>p.id)),accounts=(cloudSnapshot.accounts||[]).filter(a=>a.active!==false&&activePortfolioIds.has(a.portfolio_id)),accountIds=new Set(accounts.map(a=>a.id)),ops=(cloudSnapshot.ops||[]).filter(o=>accountIds.has(o.account_id)),rules=(cloudSnapshot.recurringRules||[]).filter(r=>accountIds.has(r.account_id)&&activePortfolioIds.has(r.portfolio_id)),recurring=expandRecurringRules(rules,cloudSnapshot.navs||[],cloudSnapshot.listingPrices||[]),positions=buildPositions([...ops,...recurring.operations],accounts,cloudSnapshot.funds||[],cloudSnapshot.navs||[],cloudSnapshot.listingPrices||[]),accountMap=Object.fromEntries(accounts.map(a=>[a.id,a])),portfolioMap=Object.fromEntries((state.portfolios||[]).map(p=>[p.id,p.name]));return positions.map(p=>{const account=accountMap[p.accountId];return{...p,portfolioName:portfolioMap[account?.portfolio_id]||'Cartera'}});
 }
-async function refreshAllMarketData(showNotice=true){
- setRefreshProgress(true,'Cargando los fondos de todos los perfiles…',0,0);await syncFromCloud(false);const unique=[];const seen=new Set();for(const p of allPortfolioMarketPositions()){const key=p.isin+'|'+(p.listingSymbol||'');if(seen.has(key))continue;seen.add(key);unique.push(p)}
- unique.sort((a,b)=>String(a.navDate||'').localeCompare(String(b.navDate||'')));
- const limited=unique;let ok=0,failed=0;const stale=[];setCloudStatus(`Actualizando todos los perfiles… 0/${limited.length}`);setRefreshProgress(true,limited.length?'Preparando todos los perfiles…':'No hay posiciones que actualizar',0,limited.length);
- for(let i=0;i<limited.length;i++){const p=limited[i],name=meta(p).name||p.isin;setRefreshProgress(true,`Actualizando ${i+1} de ${limited.length}: ${name}`,i,limited.length);try{const result=await resolveFund(p.isin,true,false,p.listingSymbol||null,true);ok++;if(result?.quote_status?.stale)stale.push(name)}catch(err){console.warn('Refresh',p.isin,err);failed++}setCloudStatus(`Actualizando todos los perfiles… ${i+1}/${limited.length}`);setRefreshProgress(true,`Procesados ${i+1} de ${limited.length}`,i+1,limited.length,failed?'warn':'ok')}
- await syncFromCloud(false);localStorage.setItem(AUTO_REFRESH_KEY,new Date().toISOString());const resultText=limited.length?`Todos los perfiles actualizados: ${ok} ${ok===1?'instrumento correcto':'instrumentos correctos'}${failed?` y ${failed} con error`:''}.`:'No hay posiciones que actualizar.';setRefreshProgress(false,resultText,limited.length,limited.length,failed?'warn':'ok');if(showNotice)alert(`${resultText}${stale.length?`\n\nSiguen atrasados: ${stale.join(', ')}.`:''}`);return{ok,failed,stale}
+function refreshTargetKey(x){return `${x.isin}|${x.listingSymbol||''}`}
+function refreshTargets(){
+ const map=new Map();for(const p of allPortfolioMarketPositions()){const key=refreshTargetKey(p),current=map.get(key);if(current){if(p.portfolioName&&!current.portfolios.includes(p.portfolioName))current.portfolios.push(p.portfolioName);continue}map.set(key,{key,isin:p.isin,listingSymbol:p.listingSymbol||null,name:meta(p).name||p.isin,navDate:p.navDate||null,portfolios:p.portfolioName?[p.portfolioName]:[]})}return[...map.values()].sort((a,b)=>String(a.navDate||'').localeCompare(String(b.navDate||''))||a.name.localeCompare(b.name,'es'));
 }
+function refreshErrorText(err){
+ const code=String(err?.code||err?.payload?.error||err?.message||'ERROR_DESCONOCIDO').toUpperCase(),known={INSTRUMENT_NOT_FOUND:'El ISIN no aparece en ninguna fuente disponible.',EODHD_SEARCH_FAILED:'EODHD no respondió al buscar el ISIN.',EODHD_SEARCH_UNAVAILABLE:'No se pudo conectar con EODHD.',EODHD_HISTORY_FAILED:'EODHD no devolvió el histórico solicitado.',TRADEGATE_QUOTE_UNAVAILABLE:'Tradegate no devolvió una cotización válida.',LISTING_NOT_FOUND:'La bolsa seleccionada ya no está disponible.',SERVER_CONFIGURATION_INCOMPLETE:'Falta configurar alguna credencial del servicio de actualización.',INVALID_SESSION:'La sesión de Supabase ha caducado.'};return known[code]||String(err?.message||'Error de actualización');
+}
+async function refreshOneTarget(target){
+ const startedAt=new Date().toISOString();try{const result=await resolveFund(target.isin,true,false,target.listingSymbol||null,true),quote=result?.latest_nav||null,stale=result?.quote_status?.stale===true||!quote?.date,status=!quote?.date?'failed':stale?'stale':'updated';return{...target,status,source:quote?.source||result?.sources?.identity_nav||null,quoteDate:quote?.date||null,quoteValue:Number.isFinite(+quote?.nav)?+quote.nav:null,currency:quote?.currency||null,historyReason:result?.history?.reason||null,historyRows:+result?.history?.rows_inserted||0,diagnostics:result?.diagnostics||[],error:status==='failed'?'No se obtuvo un VL/precio válido.':null,startedAt,finishedAt:new Date().toISOString()}}catch(err){return{...target,status:'failed',source:null,quoteDate:null,quoteValue:null,currency:null,historyReason:null,historyRows:0,diagnostics:err?.payload?.diagnostics||[],error:refreshErrorText(err),errorCode:err?.code||err?.payload?.error||null,startedAt,finishedAt:new Date().toISOString()}}
+}
+async function runRefreshTargets(targets){
+ const rows=new Array(targets.length);let cursor=0,completed=0;const workers=Math.min(3,Math.max(1,targets.length));async function worker(){while(true){const index=cursor++;if(index>=targets.length)return;const target=targets[index];setRefreshProgress(true,`Actualizando ${completed+1} de ${targets.length}: ${target.name}`,completed,targets.length);rows[index]=await refreshOneTarget(target);completed++;const errors=rows.filter(Boolean).filter(x=>x.status==='failed').length;setCloudStatus(`Actualizando todos los perfiles… ${completed}/${targets.length}`);setRefreshProgress(true,`Procesados ${completed} de ${targets.length}`,completed,targets.length,errors?'warn':'ok')}}await Promise.all(Array.from({length:workers},()=>worker()));return rows;
+}
+function refreshReportSummary(rows){return{updated:rows.filter(x=>x.status==='updated').length,stale:rows.filter(x=>x.status==='stale').length,failed:rows.filter(x=>x.status==='failed').length}}
+async function refreshAllMarketData(showNotice=true){
+ setRefreshProgress(true,'Cargando los fondos de todos los perfiles…',0,0);await syncFromCloud(false);const targets=refreshTargets();setCloudStatus(`Actualizando todos los perfiles… 0/${targets.length}`);setRefreshProgress(true,targets.length?'Preparando todos los perfiles…':'No hay posiciones que actualizar',0,targets.length);if(!targets.length){setRefreshProgress(false,'No hay posiciones que actualizar.',0,0);return{updated:0,stale:0,failed:0,rows:[]}}
+ const rows=await runRefreshTargets(targets);await syncFromCloud(false);const summary=refreshReportSummary(rows);state.refreshReport={startedAt:rows[0]?.startedAt||new Date().toISOString(),finishedAt:new Date().toISOString(),...summary,rows};saveCache();localStorage.setItem(AUTO_REFRESH_KEY,new Date().toISOString());const parts=[`${summary.updated} actualizados`];if(summary.stale)parts.push(`${summary.stale} atrasados`);if(summary.failed)parts.push(`${summary.failed} con error`);const resultText=`Todos los perfiles procesados: ${parts.join(', ')}.`;setRefreshProgress(false,resultText,targets.length,targets.length,summary.failed?'error':summary.stale?'warn':'ok');setCloudStatus(`Sincronizado con Supabase · ${resultText}`,summary.failed?'error':summary.stale?'warn':'');renderAnalysis();if(showNotice)alert(resultText);return{...summary,rows}
+}
+async function retryRefreshKeys(keys){
+ const wanted=new Set(keys),old=state.refreshReport?.rows||[],targets=old.filter(x=>wanted.has(x.key)).map(x=>({key:x.key,isin:x.isin,listingSymbol:x.listingSymbol||null,name:x.name||x.isin,navDate:x.quoteDate||null,portfolios:x.portfolios||[]}));if(!targets.length)return;setRefreshProgress(true,'Reintentando instrumentos fallidos…',0,targets.length);const retried=await runRefreshTargets(targets);await syncFromCloud(false);const byKey=new Map(retried.map(x=>[x.key,x])),rows=old.map(x=>byKey.get(x.key)||x),summary=refreshReportSummary(rows);state.refreshReport={startedAt:state.refreshReport?.startedAt||new Date().toISOString(),finishedAt:new Date().toISOString(),...summary,rows};saveCache();const text=`Reintento completado: ${retried.filter(x=>x.status==='updated').length} actualizados, ${retried.filter(x=>x.status==='stale').length} atrasados y ${retried.filter(x=>x.status==='failed').length} con error.`;setRefreshProgress(false,text,targets.length,targets.length,retried.some(x=>x.status==='failed')?'error':retried.some(x=>x.status==='stale')?'warn':'ok');renderAll();alert(text)
+}
+window.retryRefreshTarget=key=>retryRefreshKeys([key]);window.retryFailedRefreshes=()=>retryRefreshKeys((state.refreshReport?.rows||[]).filter(x=>x.status==='failed').map(x=>x.key));
 async function refreshPortfolio(){const button=document.getElementById('refreshBtn');if(button?.disabled)return;state.lastValue=total();saveCache();try{await refreshAllMarketData(true)}catch(err){console.error(err);setRefreshProgress(false,'No se pudo completar la actualización.',0,1,'error');alert('No se pudo actualizar la cartera: '+err.message)}}
 function startupRefreshDue(){const raw=localStorage.getItem(AUTO_REFRESH_KEY);if(!raw)return true;const t=Date.parse(raw);if(!Number.isFinite(t))return true;return Date.now()-t>=12*3600*1000}
 async function refreshOnStartup(){if(!state.positions.length||!startupRefreshDue())return;state.lastValue=total();saveCache();const el=document.getElementById('sinceUpdate');if(el)el.innerHTML='<span class="muted">Actualizando…</span>';setCloudStatus('Actualizando mercados…');try{await refreshAllMarketData(false)}catch(err){console.warn('Auto refresh',err);setRefreshProgress(false,'La actualización automática quedó pendiente.',0,1,'warn');setCloudStatus('Sincronizado con Supabase · actualización pendiente','warn')}}

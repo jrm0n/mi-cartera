@@ -1,4 +1,4 @@
-const CACHE='mi-cartera-v0.9.3';
+const CACHE='mi-cartera-v0.10.0';
 const ASSETS=['./','./index.html','./manifest.webmanifest','./config.js','./app.js','./version.json','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install',e=>e.waitUntil((async()=>{
   const c=await caches.open(CACHE);
