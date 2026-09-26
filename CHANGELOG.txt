@@ -1,3 +1,16 @@
+v0.9.0 - 2026-09-26
+- Unifica el cálculo de Inicio, Posiciones, detalle y Análisis en un motor común.
+- Incorpora cuatro lecturas separadas: resultado en euros, rentabilidad simple, TWR y XIRR anualizada.
+- Añade un desglose auditable del periodo con valor inicial, aportaciones, retiradas, valor final y operaciones incluidas.
+- La vista histórica alterna entre Valor €, TWR y rentabilidad simple en 1D, 1M, 3M, 6M, 1A, YTD, 2A, 3A, 5A y Desde inicio.
+- Las aportaciones y retiradas generan saltos en patrimonio, pero se neutralizan correctamente en TWR.
+- Base 2026 actúa como apertura a 01/01/2026 y no como aportación del año.
+- Excluye los traspasos internos del flujo agregado cuando ambas patas están dentro de la selección.
+- Añade atribución por fondo, banco y temática, marcadores de flujos y lectura táctil del gráfico.
+- Añade centro de calidad de datos y tipos de cambio históricos diarios BCE para valoraciones no EUR.
+- Si falta histórico suficiente o un cambio necesario, muestra N/D en lugar de una rentabilidad parcial o falsa.
+- No requiere SQL nuevo ni cambios de esquema.
+
 v0.8.2 - 2026-09-25
 - Separa el gráfico de Análisis en dos modos: Valor € y Rentabilidad %.
 - Valor € representa el patrimonio y muestra los saltos provocados por nuevas posiciones, aportaciones, ventas y reembolsos.

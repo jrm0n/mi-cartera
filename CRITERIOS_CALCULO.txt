@@ -1,4 +1,4 @@
-MI CARTERA v0.8.2 - CRITERIOS DE CALCULO
+MI CARTERA v0.9.0 - CRITERIOS DE CALCULO
 
 0. Separacion por cartera
    Cada cuenta bancaria pertenece a una única cartera mediante portfolio_id.
@@ -40,10 +40,13 @@ MI CARTERA v0.8.2 - CRITERIOS DE CALCULO
    En ese caso se marca siempre con el simbolo aproximado (≈).
    El punto final de la rentabilidad y del grafico es siempre el precio exacto usado para valorar la posicion actual.
 
-8. Agregacion por entidad/cartera
-   Valor = suma de valores actuales de las posiciones.
-   Rentabilidad personal del periodo = suma de resultados del periodo / suma de capitales del periodo.
-   No se pondera por valor actual.
+8. Motor comun y medidas del periodo
+   Inicio, Posiciones, detalle y Análisis usan el mismo motor y el mismo conjunto de flujos.
+   Resultado en EUR = valor final + retiradas - valor inicial - aportaciones.
+   Rentabilidad simple = resultado / (valor inicial + aportaciones).
+   TWR enlaza los rendimientos de los subperiodos entre flujos y elimina el efecto de su tamaño y momento.
+   XIRR es la tasa anualizada que iguala a cero los flujos con sus fechas exactas y el valor final.
+   Los traspasos internos se excluyen del flujo agregado si ambas patas están dentro de la selección; al filtrar sólo un banco, la pata que cruza el límite sí se trata como entrada o salida.
 
 9. Datos aproximados
    Nunca validan operaciones ni sustituyen el precio actual del mercado seleccionado.
@@ -69,15 +72,15 @@ MI CARTERA v0.8.2 - CRITERIOS DE CALCULO
    La versión actual sólo automatiza cotizaciones en EUR para no inventar tipos de cambio históricos.
 
 12. Evolucion historica de la cartera
-   Análisis ofrece dos vistas independientes: Valor € y Rentabilidad %.
+   Análisis ofrece tres vistas independientes: Valor €, TWR y rentabilidad simple.
    La curva reconstruye las participaciones vigentes en cada fecha a partir de las operaciones completadas.
    Cada posición se valora con todos los precios/VL diarios guardados; en días sin publicación se conserva el último dato conocido.
    Una Base 2026 utiliza como punto de apertura el valor declarado por el usuario a 01/01/2026.
    Si una posición carece temporalmente de histórico, se mantiene su base o valor de operación hasta disponer de su primer VL; no se eliminan por ello los puntos diarios del resto de la cartera.
    En Valor €, las aportaciones, ventas y reembolsos modifican el patrimonio cuando entran en vigor y producen los saltos correspondientes.
-   En Rentabilidad %, se eliminan esos flujos: (valor + salidas - valor inicial - aportaciones) / (valor inicial + aportaciones).
-   Los dos modos se muestran por separado; la diferencia patrimonial nunca se etiqueta como porcentaje de rentabilidad.
-   El último punto YTD de Rentabilidad % usa el mismo cálculo agregado que la pantalla Inicio.
+   En TWR se enlazan los subperiodos separados por flujos. En rentabilidad simple se aplica resultado acumulado / capital acumulado.
+   Los tres modos se muestran por separado; la diferencia patrimonial nunca se etiqueta como porcentaje de rentabilidad.
+   El último punto YTD de TWR usa el mismo motor agregado que la pantalla Inicio.
    La vista puede agregar toda la cartera activa o limitarse a una entidad bancaria.
    Periodos disponibles: 1D, 1M, 3M, 6M, 1A, YTD, 2A, 3A, 5A y Desde inicio.
 
@@ -85,3 +88,10 @@ MI CARTERA v0.8.2 - CRITERIOS DE CALCULO
    El botón Actualizar cartera reúne las posiciones de todas las carteras/perfiles del mismo inicio de sesión.
    Un mismo ISIN y cotización sólo se consulta una vez aunque figure en varios perfiles.
    La pantalla muestra el instrumento en curso y el avance total hasta finalizar.
+
+14. Divisas, atribucion y calidad
+   El valor actual usa el cambio EUR más reciente disponible.
+   La evolución histórica usa el cambio diario BCE correspondiente a cada fecha, con arrastre máximo de siete días para fines de semana y festivos.
+   Si falta un cambio histórico necesario, el periodo queda incompleto y no se fabrica una rentabilidad.
+   La atribución muestra resultado por fondo, banco y temática. Los puntos porcentuales se calculan contra el capital simple agregado; los TWR individuales no se suman.
+   El centro de calidad avisa de cotizaciones atrasadas o provisionales, mercados y cambios ausentes, operaciones pendientes, históricos incompletos y series aproximadas.
