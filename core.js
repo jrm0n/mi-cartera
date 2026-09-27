@@ -9,6 +9,7 @@ function renderVersionLabels(){
  const b=document.getElementById('appVersionAnalysis');if(b)b.textContent=`Mi Cartera v${APP_VERSION} Cloud`;
  const c=document.getElementById('schemaVersionAnalysis');if(c)c.textContent=String(DATA_SCHEMA_VERSION);
  const d=document.getElementById('topVersionLabel');if(d)d.textContent=`v${APP_VERSION}`;
+ const e=document.getElementById('accessVersionLabel');if(e)e.textContent=`v${APP_VERSION}`;
 }
 
 const THEME_KEY='mi_cartera_theme';

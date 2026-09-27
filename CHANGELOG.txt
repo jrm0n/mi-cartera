@@ -1,3 +1,6 @@
+v0.13.3 - 2026-09-27
+- En Accesos se muestra Mi Cartera y la versión, sin el selector superior de cartera.
+
 v0.13.2 - 2026-09-27
 - Oculta el selector superior basándose en la pestaña activa, aunque el navegador conserve temporalmente el JavaScript anterior.
 

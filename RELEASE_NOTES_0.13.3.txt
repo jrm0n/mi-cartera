@@ -1,0 +1,5 @@
+Mi Cartera v0.13.3 · cabecera de Accesos
+
+Si ya publicaste v0.13.2, sustituye únicamente index.html, core.js, version.js y version.json en la raíz de GitHub. No repitas el SQL ni cambies la función de Supabase.
+
+En «Accesos» la cabecera muestra «Mi Cartera» y el número de versión, pero oculta el selector superior de cartera. El selector del formulario sigue disponible para asignar permisos. En las otras pantallas se conserva la cabecera con la cartera activa.

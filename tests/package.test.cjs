@@ -16,11 +16,14 @@ test('la página carga los scripts en el orden requerido y la PWA los incluye', 
     assert.ok(worker.includes(`'./${script}'`), `${script} falta en la caché PWA`);
     previous = index;
   }
-  assert.equal(JSON.parse(read('version.json')).appVersion, '0.13.2');
+  assert.equal(JSON.parse(read('version.json')).appVersion, '0.13.3');
   assert.ok(read('supabase/functions/resolve-fund/index.ts').includes('from "./providers.ts"'));
   assert.ok(fs.existsSync(path.join(root, 'supabase/functions/resolve-fund/providers.ts')));
   assert.ok(read('016_restore_user_backup_v0.12.0.sql').includes('create or replace function public.restore_user_backup_v1'));
   assert.ok(html.includes('id="restoreBackupBtn"'));
   assert.ok(html.includes('data-page="access"'));
+  assert.ok(html.includes('class="access-brand"'));
+  assert.ok(html.includes('id="accessVersionLabel">v0.13.3'));
+  assert.ok(html.includes('body:has(#page-access.active) .portfolio-head{display:none!important}'));
   assert.ok(read('017_portfolio_viewers_v0.13.0.sql').includes('create policy operations_select_viewers'));
 });
