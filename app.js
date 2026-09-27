@@ -6,10 +6,30 @@ function toggleTheme(){const root=document.documentElement;root.dataset.theme=ro
 
 async function init(){
  if(!SUPABASE_URL||!SUPABASE_KEY){showAuth();setAuthMessage('Configuración de Supabase incompleta.',true);return}
- loadCache();state.lastValue=null;renderAll();const ok=await ensureSession();if(!ok){showAuth();return}showApp();await syncFromCloud();await refreshOnStartup();
+ if(await acceptInvitation())return;
+ const ok=await ensureSession();if(!ok){showAuth();return}loadCache();if(state.portfolios.length)updateAccessMode();state.lastValue=null;renderAll();showApp();if(await syncFromCloud()&&!state.readonly)await refreshOnStartup();
 }
 
-document.getElementById('loginForm')?.addEventListener('submit',async e=>{e.preventDefault();const email=document.getElementById('loginEmail').value.trim(),password=document.getElementById('loginPassword').value;const btn=document.getElementById('loginBtn');btn.disabled=true;setAuthMessage('Conectando…');try{await signIn(email,password);showApp();setAuthMessage('');await syncFromCloud()}catch(err){setAuthMessage(err.message,true)}finally{btn.disabled=false}});
+async function acceptInvitation(){
+ const hash=new URLSearchParams(location.hash.slice(1));
+ if(hash.get('type')!=='invite'||!hash.get('access_token')||!hash.get('refresh_token'))return false;
+ history.replaceState(null,'',location.pathname+location.search);
+ try{
+  const user=await authFetch('/auth/v1/user',{headers:{Authorization:`Bearer ${hash.get('access_token')}`}});
+  saveSession({access_token:hash.get('access_token'),refresh_token:hash.get('refresh_token'),expires_in:Number(hash.get('expires_in'))||3600,expires_at:Math.floor(Date.now()/1000)+(Number(hash.get('expires_in'))||3600),user});
+  showAuth();document.getElementById('authTitle').textContent='Crear contraseña';document.getElementById('authSubtitle').textContent='Elige una contraseña para acceder a las carteras compartidas contigo.';
+  document.getElementById('loginForm').style.display='none';document.getElementById('invitationForm').style.display='grid';
+ }catch(error){showAuth();setAuthMessage('No se pudo abrir la invitación: '+error.message,true)}
+ return true;
+}
+document.getElementById('invitationForm').addEventListener('submit',async event=>{
+ event.preventDefault();const button=event.currentTarget.querySelector('button'),message=document.getElementById('invitationMessage');button.disabled=true;
+ try{await authFetch('/auth/v1/user',{method:'PUT',headers:{Authorization:`Bearer ${session.access_token}`},body:JSON.stringify({password:document.getElementById('invitationPassword').value})});document.getElementById('invitationPassword').value='';document.getElementById('invitationForm').style.display='none';document.getElementById('loginForm').style.display='grid';if(!await syncFromCloud())throw new Error('No se pudo cargar la cartera compartida. Vuelve a iniciar sesión.');showApp();}
+ catch(error){showAuth();message.textContent='No se pudo guardar la contraseña: '+error.message}
+ finally{button.disabled=false}
+});
+
+document.getElementById('loginForm')?.addEventListener('submit',async e=>{e.preventDefault();const email=document.getElementById('loginEmail').value.trim(),password=document.getElementById('loginPassword').value;const btn=document.getElementById('loginBtn');btn.disabled=true;setAuthMessage('Conectando…');try{await signIn(email,password);state.positions=[];state.operations=[];state.portfolios=[];cloudSnapshot=null;state.readonly=false;loadCache();if(state.portfolios.length)updateAccessMode();setAuthMessage('');if(await syncFromCloud())showApp()}catch(err){setAuthMessage(err.message,true)}finally{btn.disabled=false}});
 document.getElementById('logoutBtn')?.addEventListener('click',signOut);
 document.getElementById('portfolioSelect')?.addEventListener('change',e=>changeActivePortfolio(e.target.value));document.getElementById('managePortfoliosBtn')?.addEventListener('click',openPortfolioManager);
 document.getElementById('refreshBtn').onclick=refreshPortfolio;document.getElementById('newOpFab').onclick=openNewOp;document.getElementById('newOpTop').onclick=openNewOp;document.getElementById('positionSearch').oninput=renderPositions;

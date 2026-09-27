@@ -8,7 +8,7 @@ const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 test('la página carga los scripts en el orden requerido y la PWA los incluye', () => {
   const html = read('index.html');
   const worker = read('sw.js');
-  const scripts = ['version.js', 'config.js', 'core.js', 'analysis.js', 'operations.js', 'market.js', 'app.js'];
+  const scripts = ['version.js', 'config.js', 'core.js', 'access.js', 'analysis.js', 'operations.js', 'market.js', 'app.js'];
   let previous = -1;
   for (const script of scripts) {
     const index = html.indexOf(`<script src="${script}"></script>`);
@@ -16,9 +16,11 @@ test('la página carga los scripts en el orden requerido y la PWA los incluye', 
     assert.ok(worker.includes(`'./${script}'`), `${script} falta en la caché PWA`);
     previous = index;
   }
-  assert.equal(JSON.parse(read('version.json')).appVersion, '0.12.0');
+  assert.equal(JSON.parse(read('version.json')).appVersion, '0.13.0');
   assert.ok(read('supabase/functions/resolve-fund/index.ts').includes('from "./providers.ts"'));
   assert.ok(fs.existsSync(path.join(root, 'supabase/functions/resolve-fund/providers.ts')));
   assert.ok(read('016_restore_user_backup_v0.12.0.sql').includes('create or replace function public.restore_user_backup_v1'));
   assert.ok(html.includes('id="restoreBackupBtn"'));
+  assert.ok(html.includes('data-page="access"'));
+  assert.ok(read('017_portfolio_viewers_v0.13.0.sql').includes('create policy operations_select_viewers'));
 });

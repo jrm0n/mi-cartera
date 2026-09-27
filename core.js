@@ -179,8 +179,8 @@ function entityWordmark(name){
  return src?`<img class="brand-logo-img ${cls}" alt="${esc(name)}" src="${src}">`:`<span>${esc(name)}</span>`;
 }
 
-function loadCache(){try{const x=JSON.parse(localStorage.getItem(CACHE_KEY)||'null');if(x&&Array.isArray(x.positions)){state={...state,...x};return true}}catch{}return false}
-function saveCache(){state.updatedAt=new Date().toISOString();localStorage.setItem(CACHE_KEY,JSON.stringify(state))}
+function loadCache(){try{const x=JSON.parse(localStorage.getItem(CACHE_KEY)||'null');if(session?.user?.id&&x?.cachedFor===session.user.id&&Array.isArray(x.positions)){state={...state,...x};return true}}catch{}return false}
+function saveCache(){if(!session?.user?.id)return;state.updatedAt=new Date().toISOString();localStorage.setItem(CACHE_KEY,JSON.stringify({...state,cachedFor:session.user.id}))}
 function loadSession(){try{return JSON.parse(localStorage.getItem(SESSION_KEY)||'null')}catch{return null}}
 function saveSession(s){session=s;if(s)localStorage.setItem(SESSION_KEY,JSON.stringify(s));else localStorage.removeItem(SESSION_KEY)}
 
@@ -210,11 +210,12 @@ async function ensureSession(){
 }
 async function signOut(){
  try{if(session?.access_token)await authFetch('/auth/v1/logout',{method:'POST',headers:{Authorization:`Bearer ${session.access_token}`}})}catch{}
- saveSession(null);session=null;showAuth();setAuthMessage('Sesión cerrada.');
+ saveSession(null);session=null;cloudSnapshot=null;localStorage.removeItem(CACHE_KEY);localStorage.removeItem(ACTIVE_PORTFOLIO_KEY);state.positions=[];state.operations=[];state.portfolios=[];document.body.dataset.readonly='';showAuth();setAuthMessage('Sesión cerrada.');
 }
 
 async function rest(path,options={},retry=true){
  if(!session?.access_token)throw new Error('No hay sesión iniciada');
+ if(state.readonly&&options.method&&options.method!=='GET')throw new Error('Esta cartera es de solo lectura.');
  const headers={'apikey':SUPABASE_KEY,'Authorization':`Bearer ${session.access_token}`,'Content-Type':'application/json',...(options.headers||{})};
  const res=await fetch(`${SUPABASE_URL}/rest/v1/${path}`,{...options,headers});
  if(res.status===401&&retry){await refreshSession();return rest(path,options,false)}
@@ -243,6 +244,7 @@ const rpc=(name,body)=>rest(`rpc/${name}`,{method:'POST',headers:{Prefer:'return
 
 async function edge(name,body,retry=true){
  if(!session?.access_token)throw new Error('No hay sesión iniciada');
+ if(state.readonly&&name!=='invite-portfolio-viewer')throw new Error('Esta cartera es de solo lectura.');
  const res=await fetch(`${SUPABASE_URL}/functions/v1/${name}`,{method:'POST',headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${session.access_token}`,'Content-Type':'application/json'},body:JSON.stringify(body||{})});
  if(res.status===401&&retry){await refreshSession();return edge(name,body,false)}
  const text=await res.text();let data=null;try{data=text?JSON.parse(text):null}catch{data=text}
@@ -399,6 +401,7 @@ function mapOperations(ops,transfers,accounts){
 }
 
 function activePortfolio(){return state.portfolios.find(p=>p.id===state.activePortfolioId)||null}
+function updateAccessMode(){state.readonly=!!(activePortfolio()&&activePortfolio().user_id!==session?.user?.id);document.body.dataset.readonly=state.readonly?'true':'false';if(state.readonly&&document.getElementById('page-access')?.classList.contains('active'))navigate('home')}
 function renderPortfolioSelector(){
  const sel=document.getElementById('portfolioSelect');if(!sel)return;
  const rows=(state.portfolios||[]).filter(p=>p.active!==false);sel.innerHTML=rows.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
@@ -406,6 +409,7 @@ function renderPortfolioSelector(){
 }
 function applyActivePortfolio(){
  if(!cloudSnapshot)return false;
+ updateAccessMode();
  const portfolioId=state.activePortfolioId,accounts=(cloudSnapshot.accounts||[]).filter(a=>a.portfolio_id===portfolioId&&a.active!==false),accountIds=new Set(accounts.map(a=>a.id));
  const ops=(cloudSnapshot.ops||[]).filter(o=>accountIds.has(o.account_id)),transfers=(cloudSnapshot.transfers||[]).filter(t=>accountIds.has(t.from_account_id)&&accountIds.has(t.to_account_id)),recurringRules=(cloudSnapshot.recurringRules||[]).filter(r=>r.portfolio_id===portfolioId&&accountIds.has(r.account_id));
  const recurring=expandRecurringRules(recurringRules,cloudSnapshot.navs||[],cloudSnapshot.listingPrices||[]),calculationOps=[...ops,...recurring.operations];
@@ -421,8 +425,9 @@ async function changeActivePortfolio(id){
 }
 function portfolioNameInputId(id){return 'portfolioName_'+String(id).replace(/[^a-zA-Z0-9_-]/g,'_')}
 function openPortfolioManager(){
+ if(state.readonly)return;
  const rows=(state.portfolios||[]).filter(p=>p.active!==false),counts={};for(const a of cloudSnapshot?.accounts||[])counts[a.portfolio_id]=(counts[a.portfolio_id]||0)+1;
- document.getElementById('opContent').innerHTML=`<div class="drawer-head"><div><div class="eyebrow">Configuración</div><div class="drawer-title">Gestionar carteras</div></div><button class="close" onclick="closeOp()">×</button></div><div class="notice" style="margin:14px 0">Cada cartera mantiene separadas sus entidades, fondos, operaciones y rentabilidad. Todas utilizan el mismo inicio de sesión.</div><div class="portfolio-list">${rows.map(p=>`<div class="portfolio-row"><div><input id="${portfolioNameInputId(p.id)}" value="${esc(p.name)}" maxlength="60" aria-label="Nombre de la cartera"><div class="muted" style="font-size:11px;margin-top:4px">${counts[p.id]||0} ${(counts[p.id]||0)===1?'cuenta':'cuentas'}${p.id===state.activePortfolioId?' · activa':''}</div></div><div class="portfolio-actions"><button class="btn small" onclick="renamePortfolio('${esc(p.id)}')">Guardar</button>${rows.length>1?`<button class="btn danger small" onclick="deletePortfolio('${esc(p.id)}')">Eliminar</button>`:''}</div></div>`).join('')}</div><div class="form-grid" style="margin-top:16px"><div class="field"><label>Nueva cartera</label><input id="fNewPortfolioName" maxlength="60" placeholder="Por ejemplo: Padres o Hija"></div></div><div class="form-actions"><button class="btn" onclick="closeOp()">Cerrar</button><button class="btn primary" onclick="createPortfolio()">+ Crear cartera</button></div>`;
+ document.getElementById('opContent').innerHTML=`<div class="drawer-head"><div><div class="eyebrow">Configuración</div><div class="drawer-title">Gestionar carteras</div></div><button class="close" onclick="closeOp()">×</button></div><div class="notice" style="margin:14px 0">Cada cartera mantiene separadas sus entidades, fondos, operaciones y rentabilidad. En «Accesos» puedes compartirlas para consulta.</div><div class="portfolio-list">${rows.map(p=>`<div class="portfolio-row"><div><input id="${portfolioNameInputId(p.id)}" value="${esc(p.name)}" maxlength="60" aria-label="Nombre de la cartera"><div class="muted" style="font-size:11px;margin-top:4px">${counts[p.id]||0} ${(counts[p.id]||0)===1?'cuenta':'cuentas'}${p.id===state.activePortfolioId?' · activa':''}</div></div><div class="portfolio-actions"><button class="btn small" onclick="renamePortfolio('${esc(p.id)}')">Guardar</button>${rows.length>1?`<button class="btn danger small" onclick="deletePortfolio('${esc(p.id)}')">Eliminar</button>`:''}</div></div>`).join('')}</div><div class="form-grid" style="margin-top:16px"><div class="field"><label>Nueva cartera</label><input id="fNewPortfolioName" maxlength="60" placeholder="Por ejemplo: Padres o Hija"></div></div><div class="form-actions"><button class="btn" onclick="closeOp()">Cerrar</button><button class="btn primary" onclick="createPortfolio()">+ Crear cartera</button></div>`;
  document.getElementById('opBackdrop').classList.add('open');
 }
 async function renamePortfolio(id){
@@ -439,9 +444,10 @@ window.changeActivePortfolio=changeActivePortfolio;window.openPortfolioManager=o
 async function syncFromCloud(showNotice=false){
  setCloudStatus('Sincronizando…');
  try{
-   try{await rpc('ensure_default_portfolio_v1',{p_name:'Mi cartera'})}catch(err){if(/ensure_default_portfolio_v1|schema cache|PGRST202/i.test(String(err?.message||err)))throw new Error('Falta ejecutar la migración 014_portfolios_v0.6.0.sql en Supabase.');throw err}
+   const available=await select('portfolios','select=id&limit=1');
+   if(!available?.length)throw new Error('NO_ACCESS: Esta cuenta no tiene carteras asignadas. Pide al propietario que comparta una cartera contigo.');
    const [portfolios,accounts,ops,transfers,recurringRules,funds,navs,listings,listingPrices]=await Promise.all([
-     selectPaged('portfolios','active=eq.true&select=id,name,is_default,active,sort_order,created_at&order=sort_order.asc,created_at.asc,id.asc'),
+     selectPaged('portfolios','active=eq.true&select=id,user_id,name,is_default,active,sort_order,created_at&order=sort_order.asc,created_at.asc,id.asc'),
      selectPaged('accounts','select=id,portfolio_id,institution_code,account_name,active,created_at&order=created_at.asc,id.asc'),
      selectPaged('operations','select=id,account_id,isin,listing_symbol,operation_type,operation_date,request_date,execution_date,amount,shares_delta,nav,fees,external_cashflow,status,validation_status,reference_nav,reference_nav_date,nav_difference_pct,input_consistency_pct,execution_confirmed,transfer_id,notes,created_at,updated_at&order=operation_date.desc,created_at.desc,id.desc'),
      selectPaged('transfers','select=id,from_account_id,from_isin,to_account_id,to_isin,request_date,settlement_date,out_execution_date,in_execution_date,amount,shares_out,shares_in,nav_out,nav_in,status,validation_status,out_reference_nav,in_reference_nav,out_difference_pct,in_difference_pct,notes,created_at,updated_at&order=request_date.desc,created_at.desc,id.desc'),
@@ -461,7 +467,7 @@ async function syncFromCloud(showNotice=false){
    const lastFund=(navs||[]).reduce((m,n)=>!m||n.nav_date>m?n.nav_date:m,null);const lastListing=(listingPrices||[]).reduce((m,n)=>!m||n.price_date>m?n.price_date:m,null);state.lastNavUpdate=[lastFund,lastListing].filter(Boolean).sort().at(-1)||null;
    applyActivePortfolio();
    setCloudStatus('Sincronizado con Supabase','ok');if(showNotice)alert('Datos sincronizados con Supabase.');return true;
- }catch(err){console.error(err);const missingRecurring=/recurring_operations|PGRST205|42P01/i.test(String(err?.message||err));setCloudStatus(missingRecurring?'Falta migración 015 · usando última copia local':'Sin conexión · mostrando última copia local','warn');if(showNotice)alert('No se pudo sincronizar: '+(missingRecurring?'ejecuta 015_recurring_operations_v0.7.0.sql en Supabase.':err.message));return false}
+ }catch(err){console.error(err);if(String(err?.message||'').startsWith('NO_ACCESS:')){localStorage.removeItem(CACHE_KEY);state.positions=[];state.operations=[];state.portfolios=[];showAuth();setAuthMessage(err.message.slice(11),true);return false}const missingRecurring=/recurring_operations|PGRST205|42P01/i.test(String(err?.message||err));setCloudStatus(missingRecurring?'Falta migración 015 · usando última copia local':'Sin conexión · mostrando última copia local','warn');if(showNotice)alert('No se pudo sincronizar: '+(missingRecurring?'ejecuta 015_recurring_operations_v0.7.0.sql en Supabase.':err.message));return false}
 }
 
 async function ensureFund(isin,name,theme){

@@ -10,7 +10,7 @@ function loadApp(config={cloud:{}},skipInit=false) {
   const elements = new Map();
   const element = id => {
     if (!elements.has(id)) elements.set(id, {
-      style: {}, dataset: {}, classList: { add(){}, remove(){}, toggle(){} },
+      style: {}, dataset: {}, classList: { add(){}, remove(){}, toggle(){}, contains(){return false} },
       addEventListener(){}, textContent: '', innerHTML: '', value: '',
     });
     return elements.get(id);
@@ -23,13 +23,14 @@ function loadApp(config={cloud:{}},skipInit=false) {
       getElementById: element,
       querySelectorAll: () => [],
       documentElement: { dataset: {} },
+      body: { dataset: {} },
     },
     addEventListener(){},
   };
   context.window = context;
   context.MI_CARTERA_CONFIG = config;
   vm.createContext(context);
-  for (const file of ['version.js', 'core.js', 'analysis.js', 'operations.js', 'market.js', 'app.js']) {
+  for (const file of ['version.js', 'core.js', 'access.js', 'analysis.js', 'operations.js', 'market.js', 'app.js']) {
     let source=fs.readFileSync(path.join(root, file), 'utf8');
     if(file==='app.js'&&skipInit)source=source.replace(/\ninit\(\);\s*$/, '\n');
     vm.runInContext(source, context, { filename: file });
@@ -40,9 +41,18 @@ const app = loadApp();
 const evalInApp = expression => vm.runInContext(expression, app);
 
 test('la versión y las funciones esenciales cargan con el orden publicado', () => {
-  assert.equal(evalInApp('APP_VERSION'), '0.12.0');
+  assert.equal(evalInApp('APP_VERSION'), '0.13.0');
   assert.equal(typeof app.exportBackup, 'function');
   assert.equal(typeof app.retryRefreshTarget, 'function');
+});
+
+test('una cartera compartida activa bloquea escrituras desde el cliente', async () => {
+  const guest = loadApp({cloud:{}}, true);
+  vm.runInContext("session={access_token:'token',user:{id:'invitado'}};state.portfolios=[{id:'cartera-familiar',user_id:'propietario'}];state.activePortfolioId='cartera-familiar';updateAccessMode()",guest);
+  assert.equal(guest.document.body.dataset.readonly,'true');
+  await assert.rejects(vm.runInContext("rest('operations',{method:'POST',body:'{}'})",guest),/solo lectura/);
+  vm.runInContext("state.portfolios=[{id:'cartera-propia',user_id:'invitado'}];state.activePortfolioId='cartera-propia';updateAccessMode()",guest);
+  assert.equal(guest.document.body.dataset.readonly,'false');
 });
 
 test('XIRR: ganancia anual conocida y flujos sin solución', () => {

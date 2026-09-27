@@ -1,0 +1,24 @@
+Mi Cartera v0.13.0 · invitados de solo lectura por cartera
+
+PREPARACIÓN, EN ESTE ORDEN
+1. Conserva la copia JSON de tu cuenta principal y una copia del proyecto de Supabase.
+2. Ejecuta 017_portfolio_viewers_v0.13.0.sql en Supabase > SQL Editor. No mueve ni borra tus carteras u operaciones. Elimina el permiso general de lectura del historial técnico market_refresh_runs porque muestra ISIN de diferentes carteras.
+3. En Supabase > Authentication > URL Configuration, añade la URL HTTPS exacta publicada de Mi Cartera a Redirect URLs. La invitación debe volver a esa URL. Si la URL no está permitida, Supabase puede redirigir a Site URL sin dar error.
+4. En Supabase > Edge Functions > Secrets, define MI_CARTERA_APP_URL con esa misma URL HTTPS completa (por ejemplo, https://tu-sitio.example/mi-cartera/index.html). La función usa las variables estándar que Supabase proporciona al desplegarla: SUPABASE_URL, SUPABASE_PUBLISHABLE_KEYS y SUPABASE_SECRET_KEYS, o sus equivalentes antiguos SUPABASE_ANON_KEY y SUPABASE_SERVICE_ROLE_KEY.
+5. Despliega supabase/functions/invite-portfolio-viewer/index.ts como Edge Function llamada invite-portfolio-viewer. Mantén Verify JWT activado. La clave de servicio permanece en Supabase y NUNCA debe copiarse a config.js ni al repositorio público.
+6. Publica el resto de archivos del paquete en la raíz del sitio. Espera a que la PWA actualice a v0.13.0.
+
+USO
+- Abre la quinta pestaña, «Accesos». Selecciona una cartera y el correo de la persona; pulsa «Invitar o conceder acceso».
+- Para una cuenta nueva Supabase envía el correo de invitación. El destinatario abre el enlace y establece su contraseña; después puede instalar la misma app en el móvil.
+- Una cuenta ya existente recibe acceso directamente y entra con su contraseña actual.
+- Para revocar el acceso pulsa «Quitar» en la fila correspondiente.
+- El invitado no ve «Accesos» ni las acciones para crear operaciones, restaurar copias o actualizar mercados. Las políticas de Supabase filtran carteras, cuentas, operaciones, traspasos y reglas de recurrencia.
+
+VERIFICACIÓN ANTES DE INVITAR A TU MADRE
+- Prueba primero con una cuenta de correo de ensayo distinta de la tuya. Comprueba que ve exclusivamente la cartera asignada y que no puede escribir en Supabase.
+- No basta con ocultar botones. Verifica en el SQL Editor la política de lectura y escritura efectiva de las tablas del proyecto. Los archivos antiguos no contienen todas las políticas originales de accounts, operations y transfers, así que no se ha podido ejecutar aquí una prueba de integración contra tu proyecto real.
+- La invitación por correo depende de la configuración de envío de Supabase y su duración configurada. Si el enlace caduca o el correo no llega, revísalo en Authentication > Users y el correo en Supabase.
+
+ESQUEMA
+DATA_SCHEMA_VERSION sigue en 10; las copias JSON existentes conservan el mismo formato. La nueva tabla portfolio_viewers almacena accesos, pero no forma parte de la copia JSON de datos financieros. Para recuperar permisos después de reconstruir el proyecto hay que reasignarlos.

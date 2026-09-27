@@ -295,3 +295,8 @@ v0.3.0 Data - 2026-09-19
 
 
 v0.4.5 - Corrección de actualización PWA y versión visible.
+v0.13.0 - 2026-09-27
+- Quinta pestaña «Accesos» tras «Análisis» en móvil y escritorio.
+- Invitación de usuarios y permisos de solo lectura por cartera, protegidos por RLS y una función de servidor.
+- Las copias locales se vinculan al usuario autenticado; los invitados no reciben botones de edición.
+- El historial técnico global de actualización deja de estar disponible para los usuarios autenticados.
