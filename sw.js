@@ -1,6 +1,6 @@
 importScripts('./version.js');
 const CACHE='mi-cartera-v'+self.MI_CARTERA_VERSION;
-const ASSETS=['./','./index.html','./manifest.webmanifest','./version.js','./config.js','./core.js','./access.js','./analysis.js','./operations.js','./market.js','./app.js','./version.json','./icons/icon-192.png','./icons/icon-512.png'];
+const ASSETS=['./','./index.html','./manifest.webmanifest','./version.js','./config.js','./core.js','./access.js','./analysis.js','./operations.js','./market.js','./app.js','./version.json','./santander.png','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install',e=>e.waitUntil((async()=>{
   const c=await caches.open(CACHE);
   for(const asset of ASSETS){

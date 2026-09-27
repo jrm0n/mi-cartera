@@ -77,7 +77,7 @@ function analysisSharesAt(p,date){return positionOperations(p).reduce((sum,o)=>{
 function analysisPriceAt(p,date){const series=positionSeries(p);let row=null;for(let i=series.length-1;i>=0;i--){if(series[i].nav_date<=date){row=series[i];break}}const op=[...positionOperations(p)].reverse().find(o=>{const d=opEffectiveDate(o);return d&&d<=date&&+o.nav>0}),opDate=op?opEffectiveDate(op):null;if(op&&(!row||opDate>row.nav_date))return{nav_date:opDate,nav:+op.nav,currency:p.navCurrency||null,source:'Precio de operación',isApproximate:false};return row}
 function analysisReferenceAt(p,date){return Object.entries(p.referenceBases||{}).map(([year,amount])=>({year:Number(year),start:`${year}-01-01`,amount:+amount})).filter(x=>x.amount>0&&x.start<=date).sort((a,b)=>b.year-a.year)[0]||null}
 function analysisFallbackValueAt(p,date,shares){
- const ref=analysisReferenceAt(p,date),ops=positionOperations(p);if(ref){let value=ref.amount;for(const o of ops){const d=analysisOperationDate(o);if(!d||d<=ref.start||d>date||o.referenceBaseYear)continue;const amount=Math.abs(+o.amount||0),fees=Math.max(0,+o.fees||0),delta=+o.sharesDelta||0;if(delta>0)value+=amount+fees;else if(delta<0)value-=Math.max(0,amount-fees)}return Math.max(0,value)}
+ const ref=analysisReferenceAt(p,date),ops=positionOperations(p);if(ref){let value=ref.amount;for(const o of ops){const d=analysisOperationDate(o);if(!d||d<=ref.start||d>date||o.referenceBaseYear||o.sanKind==='reinvestment')continue;const amount=Math.abs(+o.amount||0),fees=Math.max(0,+o.fees||0),delta=+o.sharesDelta||0;if(delta>0)value+=amount+fees;else if(delta<0)value-=Math.max(0,amount-fees)}return Math.max(0,value)}
  const op=[...ops].reverse().find(o=>{const d=analysisOperationDate(o);return d&&d<=date&&+o.nav>0});if(!op)return null;const currency=String(p.navCurrency||(p.listingSymbol?state.listings?.[p.listingSymbol]?.currency:null)||state.funds?.[p.isin]?.currency||'EUR').toUpperCase(),rate=fxRateAt(currency,date);return rate>0?shares*(+op.nav)*rate:null;
 }
 function analysisValueAt(p,date){
@@ -95,6 +95,8 @@ function analysisFlowEvents(items){
  for(const p of items)for(const o of positionOperations(p)){const key=o.id||`${o.accountId}|${o.isin}|${analysisOperationDate(o)}|${o.sharesDelta}|${o.amount}`;if(!unique.has(key)){unique.set(key,o);owner.set(key,p)}}
  const transferGroups=new Map();for(const o of unique.values())if(o.transferId){const rows=transferGroups.get(o.transferId)||[];rows.push(o);transferGroups.set(o.transferId,rows)}
  const events=[];for(const [key,o] of unique){const p=owner.get(key),date=analysisOperationDate(o),delta=+o.sharesDelta||0;if(!date||!delta)continue;
+  if(o.sanKind==='reinvestment')continue;
+  if(o.sanKind==='opening'&&o.amount>0){events.push({date,purchases:+o.amount,sales:0,id:o.id,referenceBase:true,kind:'base',name:meta(p).name,entity:p.entity,isin:p.isin});continue}
   if(o.referenceBaseYear&&o.referenceBaseAmount>0){events.push({date,purchases:+o.referenceBaseAmount,sales:0,id:o.id,referenceBase:true,kind:'base',name:meta(p).name,entity:p.entity,isin:p.isin});continue}
   if(o.transferId){const legs=transferGroups.get(o.transferId)||[],bothIncluded=legs.some(x=>(+x.sharesDelta||0)>0&&included.has(`${x.accountId}|${x.isin}|${canonicalListingSymbol(x.isin,x.listingSymbol||null)||''}`))&&legs.some(x=>(+x.sharesDelta||0)<0&&included.has(`${x.accountId}|${x.isin}|${canonicalListingSymbol(x.isin,x.listingSymbol||null)||''}`));if(bothIncluded)continue}
   const amount=Math.abs(+o.amount||0),fees=Math.max(0,+o.fees||0);if(delta>0)events.push({date,purchases:amount+fees,sales:0,id:o.id,kind:o.transferId?'transfer_in':'contribution',name:meta(p).name,entity:p.entity,isin:p.isin});else events.push({date,purchases:0,sales:Math.max(0,amount-fees),id:o.id,kind:o.transferId?'transfer_out':'withdrawal',name:meta(p).name,entity:p.entity,isin:p.isin});
@@ -219,4 +221,3 @@ function openDetail(id){
 }
 function closeDetail(){document.getElementById('detailBackdrop').classList.remove('open')}
 window.closeDetail=closeDetail;
-
