@@ -1,0 +1,12 @@
+Mi Cartera v0.14.2 — cantidades visibles en las posiciones
+
+Subir a la raíz del repositorio de GitHub solo estos cinco archivos:
+index.html, analysis.js, version.js, version.json y sw.js.
+
+En Resumen y Posiciones se muestra el número de acciones o participaciones.
+En el detalle se cambia «Participaciones» por «Acciones» cuando corresponde,
+con hasta ocho decimales para conservar cantidades fraccionarias.
+El detalle de Santander presenta el resultado desde 2026.
+
+No ejecutar SQL. No desplegar de nuevo la función de Supabase. Las operaciones
+ya registradas, incluida la base de 745 acciones de Santander, se conservan.
