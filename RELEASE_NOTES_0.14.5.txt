@@ -1,0 +1,11 @@
+Mi Cartera v0.14.5 — filtro de año para invitados
+
+Sustituye en la raíz de GitHub estos cinco archivos:
+index.html, analysis.js, version.js, version.json y sw.js.
+
+La pantalla sencilla de los invitados permite elegir el año de la rentabilidad.
+El valor y la lista de posiciones se identifican como actuales y no cambian al
+elegir un año anterior. El filtro muestra los años disponibles según los datos
+de esa cartera; si falta histórico para un año, muestra «No disponible».
+
+No requiere SQL ni desplegar funciones en Supabase.

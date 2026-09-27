@@ -1,5 +1,5 @@
 importScripts('./version.js');
-// v0.14.4: vista sencilla para usuarios invitados.
+// v0.14.5: selector de año en la vista de invitados.
 const CACHE='mi-cartera-v'+self.MI_CARTERA_VERSION;
 const ASSETS=['./','./index.html','./manifest.webmanifest','./version.js','./config.js','./core.js','./access.js','./analysis.js','./operations.js','./market.js','./app.js','./version.json','./santander.png','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install',e=>e.waitUntil((async()=>{

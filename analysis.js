@@ -7,7 +7,10 @@ function renderHome(){
  document.querySelectorAll('.entity-main').forEach(x=>x.onclick=()=>x.closest('.entity-card').classList.toggle('open'));document.querySelectorAll('.fund-row').forEach(x=>x.onclick=e=>{e.stopPropagation();openDetail(x.dataset.pos)});
 }
 function renderViewerSummary(){
- const items=state.positions||[],year=new Date().getFullYear(),result=portfolioPerformanceForPeriod(analysisPositionUniverse(),String(year));
+ const items=state.positions||[],years=availableYears(),year=years.includes(String(state.period))?String(state.period):years[0],selector=document.getElementById('viewerYear');
+ state.period=year;selector.innerHTML=years.map(y=>`<option value="${y}">${y}</option>`).join('');selector.value=year;
+ selector.onchange=()=>{state.period=selector.value;saveCache();renderViewerSummary()};
+ const result=portfolioPerformanceForPeriod(analysisPositionUniverse(),year);
  document.getElementById('viewerTotal').textContent=eur(items.reduce((sum,p)=>sum+posValue(p),0));
  document.getElementById('viewerReturnLabel').textContent=`Rentabilidad en ${year}`;
  const ret=document.getElementById('viewerReturn');ret.textContent=Number.isFinite(result.twr)?pct(result.twr):'No disponible';ret.className='viewer-return '+(!Number.isFinite(result.twr)?'muted':result.twr>=0?'metric-positive':'metric-negative');
