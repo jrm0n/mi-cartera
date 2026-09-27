@@ -4,7 +4,12 @@ document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>navigate(b.dat
 function entityOptions(){return Object.keys(ENTITY).map(e=>`<option>${esc(e)}</option>`).join('')}
 function todayISO(){return new Date().toISOString().slice(0,10)}
 function addDaysISO(dateStr,days){const d=new Date(dateStr+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10)}
-function numVal(id){const el=document.getElementById(id);const v=el?Number(el.value):NaN;return Number.isFinite(v)&&v>0?v:null}
+function decimalInputValue(value){const raw=String(value??'').trim();if(!/^(?:\d+(?:[.,]\d+)?|[.,]\d+)$/.test(raw))return NaN;return Number(raw.replace(',','.'))}
+function numVal(id){const el=document.getElementById(id);const v=el?decimalInputValue(el.value):NaN;return Number.isFinite(v)&&v>0?v:null}
+function prepareDecimalInput(el){if(el?.matches?.('input[inputmode="decimal"]')&&el.type==='number')el.type='text'}
+function handleDecimalNumpadKey(event){const el=event.target;if(event.code!=='NumpadDecimal'||!el?.matches?.('input[inputmode="decimal"]'))return;prepareDecimalInput(el);event.preventDefault();el.setRangeText(',',el.selectionStart??el.value.length,el.selectionEnd??el.value.length,'end');el.dispatchEvent(new Event('input',{bubbles:true}))}
+document.addEventListener?.('focusin',event=>prepareDecimalInput(event.target));
+document.addEventListener?.('keydown',handleDecimalNumpadKey);
 function tripletConsistency(amount,shares,nav){if(!(amount>0&&shares>0&&nav>0))return{expected:null,differencePct:null,consistent:true};const expected=shares*nav,differencePct=Math.abs(amount/expected-1)*100;return{expected,differencePct,consistent:differencePct<VALIDATION_TOLERANCE_PCT}}
 function updateTripletNotice(){const el=document.getElementById('fTripletInfo');if(!el)return;const amount=numVal('fAmount'),shares=numVal('fShares'),nav=numVal('fOpNav'),c=tripletConsistency(amount,shares,nav);if(!amount||!shares||!nav){el.innerHTML='Introduce <strong>dos de los tres datos</strong>. La app calculará el tercero.';return}const cls=c.consistent?'':' style="border-color:#c43232"';el.setAttribute('style',c.consistent?'':'border-color:#c43232');el.innerHTML=c.consistent?`Datos coherentes: coste calculado ${eur(c.expected)} · diferencia ${c.differencePct.toFixed(3)} %.`:`<strong>Inconsistencia:</strong> ${eur(amount)} no coincide con participaciones × precio (${eur(c.expected)}). Diferencia ${c.differencePct.toFixed(3)} % ≥ 0,1 %. La operación quedará pendiente hasta corregirla.`}
 function fillOperationThird(){const amount=numVal('fAmount'),shares=numVal('fShares'),nav=numVal('fOpNav');if(amount&&shares&&!nav){document.getElementById('fOpNav').value=(amount/shares).toFixed(6)}else if(amount&&nav&&!shares){document.getElementById('fShares').value=(amount/nav).toFixed(8)}else if(shares&&nav&&!amount){document.getElementById('fAmount').value=(shares*nav).toFixed(2)}updateTripletNotice()}
@@ -34,7 +39,7 @@ async function saveSanOperation(type){
  if(window.savingSanOperation)return;
  window.savingSanOperation=true;
  try{
-  const opening=type==='Inicio SAN 2026',date=opening?'2026-01-01':document.getElementById('fSanDate')?.value,shares=Number(document.getElementById('fSanShares')?.value);
+  const opening=type==='Inicio SAN 2026',date=opening?'2026-01-01':document.getElementById('fSanDate')?.value,shares=decimalInputValue(document.getElementById('fSanShares')?.value);
   if(!Number.isFinite(shares)||shares<=0)throw new Error('Introduce un número de acciones mayor que cero.');
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date||'')||date<'2026-01-01')throw new Error('La fecha debe ser de 2026 en adelante.');
   if(date>todayISO())throw new Error('No se pueden registrar acciones de una fecha futura.');
@@ -69,7 +74,7 @@ function listingLabel(l){const market=String(l.exchange_code||'').toUpperCase()=
 function selectedListingSymbol(){const isin=document.getElementById('fIsin')?.value.trim().toUpperCase()||'';return canonicalListingSymbol(isin,document.getElementById('fListing')?.value||preferredListingSymbol||null)}
 function stockOperationFees(isStock){
  if(!isStock)return 0;
- const raw=Number(document.getElementById('fFees')?.value||0);
+ const field=document.getElementById('fFees'),raw=field?.value?.trim()?decimalInputValue(field.value):0;
  if(!Number.isFinite(raw)||raw<0)throw new Error('Las comisiones deben ser un importe válido, igual o mayor que cero.');
  return raw;
 }

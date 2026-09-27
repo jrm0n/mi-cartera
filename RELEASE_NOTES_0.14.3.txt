@@ -1,0 +1,11 @@
+Mi Cartera v0.14.3 — entrada decimal en operaciones
+
+Subir a la raíz de GitHub: operations.js, index.html, version.js,
+version.json y sw.js. No hace falta ejecutar SQL ni actualizar Supabase.
+
+En los campos decimales de Operaciones, el separador del teclado numérico
+introduce una coma. La coma y el punto del teclado principal se interpretan
+como separadores decimales, sin aplicar agrupación de millares. Por ejemplo,
+«1.234» significa 1,234; «1.234,56» se rechaza por ambiguo.
+
+Las operaciones y posiciones ya guardadas permanecen intactas.
