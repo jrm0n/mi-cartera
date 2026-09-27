@@ -6,20 +6,39 @@ function renderHome(){
  document.getElementById('entitySummary').innerHTML=Object.entries(groups).map(([e,ps])=>{const v=ps.reduce((a,p)=>a+posValue(p),0),rr=portfolioPerformanceForPeriod(universe.filter(p=>p.entity===e),state.period),pl=state.period==='total'?'Seguimiento':periodLabel();return `<article class="entity-card" data-entity="${esc(e)}"><div class="entity-main"><div><div class="entity-name">${entityWordmark(e)}</div><div class="entity-sub">${ps.length} ${ps.length===1?'posición':'posiciones'}</div></div><div class="entity-value">${eur(v)}<div class="entity-ytd ${!Number.isFinite(rr.twr)?'muted':rr.twr>=0?'metric-positive':'metric-negative'}">${Number.isFinite(rr.twr)?`TWR ${pct(rr.twr)} · ${pl}`:`TWR N/D · ${pl}`}</div></div></div><div class="entity-detail">${ps.map(p=>{const ec=ENTITY[p.entity]||{fundColor:'#64748b'},pi=portfolioPerformanceForPeriod([p],state.period),pl2=state.period==='total'?'Seguimiento':periodLabel();return `<div class="fund-row" data-pos="${esc(p.id)}" style="background:color-mix(in srgb, ${ec.fundColor} 11%, var(--panel));border-left:4px solid ${ec.fundColor}"><div><div class="fund-name">${esc(meta(p).name)}</div><div class="fund-meta">${esc(p.isin)}${p.listingSymbol&&state.listings?.[p.listingSymbol]?` · ${esc(listingLabel(state.listings[p.listingSymbol]))}`:''} · ${esc(meta(p).theme)} · ${esc(positionUnitsText(p))}</div></div><div class="fund-value">${eur(posValue(p))}<div class="trend ${!Number.isFinite(pi.twr)?'muted':pi.twr>=0?'metric-positive':'metric-negative'}">${Number.isFinite(pi.twr)?`TWR ${pct(pi.twr)} · ${pl2}`:`TWR N/D · ${pl2}`}</div></div></div>`}).join('')}</div></article>`}).join('')||'<div class="notice">No hay posiciones para el periodo seleccionado.</div>';
  document.querySelectorAll('.entity-main').forEach(x=>x.onclick=()=>x.closest('.entity-card').classList.toggle('open'));document.querySelectorAll('.fund-row').forEach(x=>x.onclick=e=>{e.stopPropagation();openDetail(x.dataset.pos)});
 }
+function viewerHistoricalSnapshot(universe,year){
+ const date=`${year}-12-31`,rows=[];let complete=true,approximate=false;
+ for(const p of universe){
+  const shares=analysisSharesAt(p,date);if(Math.abs(shares)<1e-10)continue;
+  const quote=analysisPriceAt(p,date),age=quote?dayDifference(date,quote.nav_date):null;
+  const currency=String(quote?.currency||p.navCurrency||(p.listingSymbol?state.listings?.[p.listingSymbol]?.currency:null)||state.funds?.[p.isin]?.currency||'EUR').toUpperCase();
+  const rate=fxRateAt(currency,date),value=shares>0&&quote&&age>=0&&age<=14&&+quote.nav>0&&rate>0?shares*(+quote.nav)*rate:null;
+  if(!Number.isFinite(value))complete=false;
+  if(quote?.isApproximate)approximate=true;
+  rows.push({p,value,quoteDate:Number.isFinite(value)?quote.nav_date:null});
+ }
+ return{date,rows,complete,total:complete?rows.reduce((sum,row)=>sum+row.value,0):null,approximate};
+}
 function renderViewerSummary(){
- const items=state.positions||[],years=availableYears(),year=years.includes(String(state.period))?String(state.period):years[0],selector=document.getElementById('viewerYear');
+ const years=availableYears(),year=years.includes(String(state.period))?String(state.period):years[0],selector=document.getElementById('viewerYear'),current=year===String(new Date().getFullYear());
  state.period=year;selector.innerHTML=years.map(y=>`<option value="${y}">${y}</option>`).join('');selector.value=year;
  selector.onchange=()=>{state.period=selector.value;saveCache();renderViewerSummary()};
- const result=portfolioPerformanceForPeriod(analysisPositionUniverse(),year);
- document.getElementById('viewerTotal').textContent=eur(items.reduce((sum,p)=>sum+posValue(p),0));
+ const universe=analysisPositionUniverse(),snapshot=current?null:viewerHistoricalSnapshot(universe,year),rows=current?(state.positions||[]).map(p=>({p,value:posValue(p),quoteDate:p.navDate})):snapshot.rows;
+ const totalValue=current?rows.reduce((sum,row)=>sum+row.value,0):snapshot.total,endDate=`${year}-12-31`;
+ let result;
+ if(current)result=portfolioPerformanceForPeriod(universe,year);
+ else if(snapshot.complete){const values=portfolioRowsBetween(portfolioEvolutionSeries(universe),`${year}-01-01`,endDate);if(values.length&&values.at(-1).date!==endDate)values.push({date:endDate,value:snapshot.total});result=portfolioPerformance(universe,values)}
+ const ret=document.getElementById('viewerReturn');ret.textContent=result?.available&&Number.isFinite(result.twr)?pct(result.twr):'No disponible';ret.className='viewer-return '+(!result?.available||!Number.isFinite(result.twr)?'muted':result.twr>=0?'metric-positive':'metric-negative');
  document.getElementById('viewerReturnLabel').textContent=`Rentabilidad en ${year}`;
- const ret=document.getElementById('viewerReturn');ret.textContent=Number.isFinite(result.twr)?pct(result.twr):'No disponible';ret.className='viewer-return '+(!Number.isFinite(result.twr)?'muted':result.twr>=0?'metric-positive':'metric-negative');
- document.getElementById('viewerReturnNote').textContent=Number.isFinite(result.twr)?'Rentabilidad calculada teniendo en cuenta los movimientos de dinero.':'No hay datos suficientes para calcular la rentabilidad.';
- const dates=items.map(p=>p.navDate).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(String(d))).sort(),missing=items.some(p=>!p.navDate||p.navStatus==='provisional'||p.navStatus==='market_required');
- const priceDate=dates.length?`Precio más antiguo de tus posiciones: ${new Date(dates[0]+'T00:00:00').toLocaleDateString('es-ES')}`:'Aún no hay precios disponibles';
+ document.getElementById('viewerReturnNote').textContent=result?.available&&Number.isFinite(result.twr)?'Rentabilidad calculada teniendo en cuenta los movimientos de dinero.':'No hay datos suficientes para calcular la rentabilidad.';
+ document.getElementById('viewerTotalLabel').textContent=current?'Valor actual de tu cartera':`Valor al 31/12/${year}`;
+ document.getElementById('viewerTotal').textContent=Number.isFinite(totalValue)?`${snapshot?.approximate?'≈ ':''}${eur(totalValue)}`:'No disponible';
+ document.getElementById('viewerPositionsLabel').textContent=current?'Tus posiciones actuales':`Posiciones al 31/12/${year}`;
+ const dates=rows.map(row=>row.quoteDate).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(String(d))).sort(),missing=rows.some(row=>!Number.isFinite(row.value)||current&&(row.p.navStatus==='provisional'||row.p.navStatus==='market_required'));
+ const priceDate=dates.length?`Precio más antiguo utilizado: ${new Date(dates[0]+'T00:00:00').toLocaleDateString('es-ES')}`:'Sin precios disponibles';
  const syncDate=state.cloudSyncedAt?`Última sincronización: ${new Date(state.cloudSyncedAt).toLocaleString('es-ES')}`:'Sin sincronización reciente';
- document.getElementById('viewerPriceDate').textContent=`${priceDate}${missing?' · Algunas posiciones tienen precio provisional o pendiente.':''} · ${syncDate}`;
- document.getElementById('viewerPositions').innerHTML=items.length?items.map(p=>`<div class="viewer-position"><span>${esc(meta(p).name)}</span><strong>${eur(posValue(p))}</strong></div>`).join(''):'<div class="notice">Esta cartera todavía no tiene posiciones.</div>';
+ document.getElementById('viewerPriceDate').textContent=`${priceDate}${missing?' · Faltan precios de algunas posiciones.':''}${snapshot?.approximate?' · Algún precio histórico es aproximado.':''} · ${syncDate}`;
+ document.getElementById('viewerPositions').innerHTML=rows.length?rows.map(row=>`<div class="viewer-position"><span>${esc(meta(row.p).name)}</span><strong>${Number.isFinite(row.value)?eur(row.value):'No disponible'}</strong></div>`).join(''):`<div class="notice">No había posiciones al ${current?'día de hoy':`31/12/${year}`}.</div>`;
 }
 function positionUnitsLabel(p,m=meta(p)){return isStockType(m.instrument_type)||p.isin===SAN_ISIN&&p.listingSymbol===SAN_LISTING?'acciones':'participaciones'}
 function positionUnitsText(p,m=meta(p)){return `${formatNumberES(p.shares,0,8)} ${positionUnitsLabel(p,m)}`}

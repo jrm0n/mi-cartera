@@ -79,12 +79,12 @@ main{width:100%;min-width:0;max-width:1180px;margin:auto;padding:18px 14px}.page
     <div class="spacer"></div>
     <button class="sidebtn" id="installDesktop" style="display:none">Instalar app</button>
     <button class="sidebtn" id="themeDesktop">Modo oscuro</button>
-    <div class="muted" id="appVersionLabel" style="font-size:11px;padding:8px 4px">v0.14.5</div>
+    <div class="muted" id="appVersionLabel" style="font-size:11px;padding:8px 4px">v0.14.6</div>
   </aside>
 
   <header class="topbar"><div class="topbar-inner">
-    <div class="portfolio-head"><label class="eyebrow" for="portfolioSelect"><span>Cartera activa</span><span class="top-version" id="topVersionLabel">v0.14.5</span></label><select id="portfolioSelect" class="portfolio-select" aria-label="Seleccionar cartera"><option>Mi cartera</option></select></div>
-    <div class="access-brand">Mi Cartera <span class="top-version" id="accessVersionLabel">v0.14.5</span></div>
+    <div class="portfolio-head"><label class="eyebrow" for="portfolioSelect"><span>Cartera activa</span><span class="top-version" id="topVersionLabel">v0.14.6</span></label><select id="portfolioSelect" class="portfolio-select" aria-label="Seleccionar cartera"><option>Mi cartera</option></select></div>
+    <div class="access-brand">Mi Cartera <span class="top-version" id="accessVersionLabel">v0.14.6</span></div>
     <div class="spacer"></div>
     <span class="sync-badge" id="syncBadge">Conectando…</span>
     <button class="iconbtn" id="logoutBtn" aria-label="Cerrar sesión" title="Cerrar sesión">⇥</button>
@@ -116,11 +116,11 @@ main{width:100%;min-width:0;max-width:1180px;margin:auto;padding:18px 14px}.page
     </section>
 
     <section class="page viewer-page" id="page-viewer">
-      <div class="hero-card viewer-card"><div class="viewer-label">Valor actual de tu cartera</div><div class="viewer-amount" id="viewerTotal">—</div><div class="viewer-dates" id="viewerPriceDate">—</div></div>
-      <label class="viewer-year" for="viewerYear">Año de rentabilidad<select id="viewerYear" aria-label="Año de rentabilidad"></select></label>
+      <label class="viewer-year" for="viewerYear">Año de la cartera<select id="viewerYear" aria-label="Año de la cartera"></select></label>
+      <div class="hero-card viewer-card"><div class="viewer-label" id="viewerTotalLabel">Valor actual de tu cartera</div><div class="viewer-amount" id="viewerTotal">—</div><div class="viewer-dates" id="viewerPriceDate">—</div></div>
       <div class="hero-card viewer-card"><div class="viewer-label" id="viewerReturnLabel">Rentabilidad de este año</div><div class="viewer-return" id="viewerReturn">—</div><div class="muted" id="viewerReturnNote">Tiene en cuenta las aportaciones y retiradas.</div></div>
       <button class="btn primary" id="viewerSyncBtn" type="button" onclick="syncViewerData()">Sincronizar datos</button>
-      <div class="section-head"><h2>Tus posiciones actuales</h2></div><div class="viewer-positions" id="viewerPositions"></div>
+      <div class="section-head"><h2 id="viewerPositionsLabel">Tus posiciones actuales</h2></div><div class="viewer-positions" id="viewerPositions"></div>
     </section>
 
     <section class="page" id="page-positions">
@@ -145,7 +145,7 @@ main{width:100%;min-width:0;max-width:1180px;margin:auto;padding:18px 14px}.page
       <div class="analysis-card"><div class="eyebrow">Atribución del resultado</div><div class="muted" style="font-size:11px;margin-top:4px">Pulsa un instrumento, banco o temática para aplicar el filtro al resultado y al gráfico.</div><div id="attributionBody"></div></div>
       <div class="analysis-card"><div class="eyebrow">Calidad de los datos</div><div id="qualityBody"></div></div>
       <div class="analysis-card"><div class="eyebrow">Distribución temática</div><div class="mini-bars" id="themeBars"></div></div>
-      <div class="analysis-card"><div class="eyebrow">Datos y versión</div><p style="line-height:1.5;margin:8px 0 10px"><strong id="appVersionAnalysis">Mi Cartera v0.14.5 Cloud</strong> · esquema de datos <span id="schemaVersionAnalysis">10</span>.<br>Supabase es la fuente de verdad. La app conserva además una copia local de lectura para poder mostrar la última cartera si temporalmente no hay conexión.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small" id="exportBackupBtn" onclick="exportBackup()">Exportar copia</button><button class="btn small" onclick="document.getElementById('backupFile').click()">Comprobar copia</button><input id="backupFile" type="file" accept=".json,application/json" style="display:none" onchange="verifyBackupFile(this)"><button class="btn small" id="restoreBackupBtn" onclick="document.getElementById('restoreFile').click()">Restaurar copia</button><input id="restoreFile" type="file" accept=".json,application/json" style="display:none" onchange="restoreBackupFile(this)"><button class="btn small" onclick="syncFromCloud(true)">Sincronizar ahora</button></div><div class="muted" id="backupStatus" role="status" style="margin-top:8px"></div><div class="notice" id="cloudStatus" style="margin-top:10px">Conectando con Supabase…</div><div class="muted" id="signedUser" style="font-size:12px;margin-top:8px"></div></div>
+      <div class="analysis-card"><div class="eyebrow">Datos y versión</div><p style="line-height:1.5;margin:8px 0 10px"><strong id="appVersionAnalysis">Mi Cartera v0.14.6 Cloud</strong> · esquema de datos <span id="schemaVersionAnalysis">10</span>.<br>Supabase es la fuente de verdad. La app conserva además una copia local de lectura para poder mostrar la última cartera si temporalmente no hay conexión.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small" id="exportBackupBtn" onclick="exportBackup()">Exportar copia</button><button class="btn small" onclick="document.getElementById('backupFile').click()">Comprobar copia</button><input id="backupFile" type="file" accept=".json,application/json" style="display:none" onchange="verifyBackupFile(this)"><button class="btn small" id="restoreBackupBtn" onclick="document.getElementById('restoreFile').click()">Restaurar copia</button><input id="restoreFile" type="file" accept=".json,application/json" style="display:none" onchange="restoreBackupFile(this)"><button class="btn small" onclick="syncFromCloud(true)">Sincronizar ahora</button></div><div class="muted" id="backupStatus" role="status" style="margin-top:8px"></div><div class="notice" id="cloudStatus" style="margin-top:10px">Conectando con Supabase…</div><div class="muted" id="signedUser" style="font-size:12px;margin-top:8px"></div></div>
     </section>
     <section class="page" id="page-access"><div class="section-head"><h2>Carteras y accesos</h2></div><div class="analysis-card"><h3>Gestionar carteras</h3><p class="muted">Crea una cartera para cada perfil y cambia su nombre cuando lo necesites.</p><div id="portfolioManagementContents"></div></div><div class="analysis-card"><h3>Accesos</h3><p class="muted">Asigna a cada persona las carteras que puede consultar. Los invitados solo tienen permiso de lectura.</p><div id="accessContents">Cargando accesos…</div></div></section>
   </main>
