@@ -1,0 +1,14 @@
+Mi Cartera v0.14.7 — rentabilidad por banco y posición para invitados
+
+Sustituye en la raíz de GitHub estos cinco archivos:
+index.html, analysis.js, version.js, version.json y sw.js.
+
+La vista de invitados muestra cada banco con su valor y rentabilidad
+del año elegido. Dentro de cada banco aparecen sus posiciones, también
+con valor y rentabilidad de ese año. En años anteriores, el valor y las
+posiciones corresponden al 31 de diciembre; en el año en curso, a la
+cartera actual. La rentabilidad se calcula por separado para cada nivel
+con el mismo método TWR de la app. No se suman porcentajes.
+
+Si faltan precios para un banco o una posición, aparece «No disponible»
+en la cifra afectada. No requiere SQL ni desplegar funciones en Supabase.

@@ -19,16 +19,22 @@ function viewerHistoricalSnapshot(universe,year){
  }
  return{date,rows,complete,total:complete?rows.reduce((sum,row)=>sum+row.value,0):null,approximate};
 }
+function viewerPeriodResult(items,year,current,closingValue){
+ if(!Number.isFinite(closingValue))return null;
+ if(current)return portfolioPerformanceForPeriod(items,year);
+ const endDate=`${year}-12-31`,values=portfolioRowsBetween(portfolioEvolutionSeries(items),`${year}-01-01`,endDate);
+ if(values.length&&values.at(-1).date!==endDate)values.push({date:endDate,value:closingValue});
+ return portfolioPerformance(items,values);
+}
+function viewerReturnText(result){return result?.available&&Number.isFinite(result.twr)?pct(result.twr):'No disponible'}
+function viewerReturnClass(result){return !result?.available||!Number.isFinite(result.twr)?'muted':result.twr>=0?'metric-positive':'metric-negative'}
 function renderViewerSummary(){
  const years=availableYears(),year=years.includes(String(state.period))?String(state.period):years[0],selector=document.getElementById('viewerYear'),current=year===String(new Date().getFullYear());
  state.period=year;selector.innerHTML=years.map(y=>`<option value="${y}">${y}</option>`).join('');selector.value=year;
  selector.onchange=()=>{state.period=selector.value;saveCache();renderViewerSummary()};
- const universe=analysisPositionUniverse(),snapshot=current?null:viewerHistoricalSnapshot(universe,year),rows=current?(state.positions||[]).map(p=>({p,value:posValue(p),quoteDate:p.navDate})):snapshot.rows;
- const totalValue=current?rows.reduce((sum,row)=>sum+row.value,0):snapshot.total,endDate=`${year}-12-31`;
- let result;
- if(current)result=portfolioPerformanceForPeriod(universe,year);
- else if(snapshot.complete){const values=portfolioRowsBetween(portfolioEvolutionSeries(universe),`${year}-01-01`,endDate);if(values.length&&values.at(-1).date!==endDate)values.push({date:endDate,value:snapshot.total});result=portfolioPerformance(universe,values)}
- const ret=document.getElementById('viewerReturn');ret.textContent=result?.available&&Number.isFinite(result.twr)?pct(result.twr):'No disponible';ret.className='viewer-return '+(!result?.available||!Number.isFinite(result.twr)?'muted':result.twr>=0?'metric-positive':'metric-negative');
+ const universe=analysisPositionUniverse(),snapshot=current?null:viewerHistoricalSnapshot(universe,year),rows=current?(state.positions||[]).map(p=>({p,value:['market_required','fx_required'].includes(p.navStatus)?null:posValue(p),quoteDate:p.navDate})):snapshot.rows;
+ const totalValue=current?(rows.every(row=>Number.isFinite(row.value))?rows.reduce((sum,row)=>sum+row.value,0):null):snapshot.total,result=viewerPeriodResult(universe,year,current,totalValue);
+ const ret=document.getElementById('viewerReturn');ret.textContent=viewerReturnText(result);ret.className='viewer-return '+viewerReturnClass(result);
  document.getElementById('viewerReturnLabel').textContent=`Rentabilidad en ${year}`;
  document.getElementById('viewerReturnNote').textContent=result?.available&&Number.isFinite(result.twr)?'Rentabilidad calculada teniendo en cuenta los movimientos de dinero.':'No hay datos suficientes para calcular la rentabilidad.';
  document.getElementById('viewerTotalLabel').textContent=current?'Valor actual de tu cartera':`Valor al 31/12/${year}`;
@@ -38,7 +44,11 @@ function renderViewerSummary(){
  const priceDate=dates.length?`Precio más antiguo utilizado: ${new Date(dates[0]+'T00:00:00').toLocaleDateString('es-ES')}`:'Sin precios disponibles';
  const syncDate=state.cloudSyncedAt?`Última sincronización: ${new Date(state.cloudSyncedAt).toLocaleString('es-ES')}`:'Sin sincronización reciente';
  document.getElementById('viewerPriceDate').textContent=`${priceDate}${missing?' · Faltan precios de algunas posiciones.':''}${snapshot?.approximate?' · Algún precio histórico es aproximado.':''} · ${syncDate}`;
- document.getElementById('viewerPositions').innerHTML=rows.length?rows.map(row=>`<div class="viewer-position"><span>${esc(meta(row.p).name)}</span><strong>${Number.isFinite(row.value)?eur(row.value):'No disponible'}</strong></div>`).join(''):`<div class="notice">No había posiciones al ${current?'día de hoy':`31/12/${year}`}.</div>`;
+ const banks=new Map();for(const row of rows){const name=row.p.entity||'Sin entidad';if(!banks.has(name))banks.set(name,[]);banks.get(name).push(row)}
+ document.getElementById('viewerPositions').innerHTML=banks.size?[...banks].map(([name,bankRows])=>{
+  const bankItems=universe.filter(p=>(p.entity||'Sin entidad')===name),bankValue=bankRows.every(row=>Number.isFinite(row.value))?bankRows.reduce((sum,row)=>sum+row.value,0):null,bankResult=viewerPeriodResult(bankItems,year,current,bankValue);
+  return `<section class="viewer-bank"><div class="viewer-bank-head"><div class="viewer-bank-name">${entityWordmark(name)}</div><div class="viewer-bank-stats"><strong>${Number.isFinite(bankValue)?eur(bankValue):'No disponible'}</strong><span class="${viewerReturnClass(bankResult)}">Rentabilidad ${year}: ${viewerReturnText(bankResult)}</span></div></div><div class="viewer-bank-positions">${bankRows.map(row=>{const positionResult=viewerPeriodResult([row.p],year,current,row.value);return `<div class="viewer-position"><span>${esc(meta(row.p).name)}</span><div class="viewer-position-stats"><strong>${Number.isFinite(row.value)?eur(row.value):'No disponible'}</strong><small class="${viewerReturnClass(positionResult)}">Rentabilidad ${year}: ${viewerReturnText(positionResult)}</small></div></div>`}).join('')}</div></section>`
+ }).join(''):`<div class="notice">No había posiciones al ${current?'día de hoy':`31/12/${year}`}.</div>`;
 }
 function positionUnitsLabel(p,m=meta(p)){return isStockType(m.instrument_type)||p.isin===SAN_ISIN&&p.listingSymbol===SAN_LISTING?'acciones':'participaciones'}
 function positionUnitsText(p,m=meta(p)){return `${formatNumberES(p.shares,0,8)} ${positionUnitsLabel(p,m)}`}
