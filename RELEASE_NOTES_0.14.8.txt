@@ -1,0 +1,13 @@
+Mi Cartera v0.14.8 — rentabilidad en euros y porcentaje para invitados
+
+Sustituye en la raíz de GitHub estos cinco archivos:
+index.html, analysis.js, version.js, version.json y sw.js.
+
+En la pantalla de invitados, la rentabilidad del total, de cada banco
+y de cada posición se muestra con ganancia o pérdida en euros y porcentaje
+TWR. El año solo figura en el selector; ya no se repite junto a cada
+rentabilidad. Los euros corresponden al resultado de la inversión una vez
+separadas las aportaciones y las retiradas. El porcentaje es TWR y no se
+obtiene dividiendo los euros por el valor actual.
+
+No requiere SQL ni volver a desplegar funciones de Supabase.

@@ -26,8 +26,8 @@ function viewerPeriodResult(items,year,current,closingValue){
  if(values.length&&values.at(-1).date!==endDate)values.push({date:endDate,value:closingValue});
  return portfolioPerformance(items,values);
 }
-function viewerReturnText(result){return result?.available&&Number.isFinite(result.twr)?pct(result.twr):'No disponible'}
-function viewerReturnClass(result){return !result?.available||!Number.isFinite(result.twr)?'muted':result.twr>=0?'metric-positive':'metric-negative'}
+function viewerReturnText(result){return result?.available&&Number.isFinite(result.pnl)&&Number.isFinite(result.twr)?`${result.pnl>=0?'+':''}${eur(result.pnl)} · ${pct(result.twr)}`:'No disponible'}
+function viewerReturnClass(result){if(!result?.available||!Number.isFinite(result.pnl)||!Number.isFinite(result.twr))return'muted';return result.pnl*result.twr<0?'':result.pnl>=0?'metric-positive':'metric-negative'}
 function renderViewerSummary(){
  const years=availableYears(),year=years.includes(String(state.period))?String(state.period):years[0],selector=document.getElementById('viewerYear'),current=year===String(new Date().getFullYear());
  state.period=year;selector.innerHTML=years.map(y=>`<option value="${y}">${y}</option>`).join('');selector.value=year;
@@ -35,8 +35,8 @@ function renderViewerSummary(){
  const universe=analysisPositionUniverse(),snapshot=current?null:viewerHistoricalSnapshot(universe,year),rows=current?(state.positions||[]).map(p=>({p,value:['market_required','fx_required'].includes(p.navStatus)?null:posValue(p),quoteDate:p.navDate})):snapshot.rows;
  const totalValue=current?(rows.every(row=>Number.isFinite(row.value))?rows.reduce((sum,row)=>sum+row.value,0):null):snapshot.total,result=viewerPeriodResult(universe,year,current,totalValue);
  const ret=document.getElementById('viewerReturn');ret.textContent=viewerReturnText(result);ret.className='viewer-return '+viewerReturnClass(result);
- document.getElementById('viewerReturnLabel').textContent=`Rentabilidad en ${year}`;
- document.getElementById('viewerReturnNote').textContent=result?.available&&Number.isFinite(result.twr)?'Rentabilidad calculada teniendo en cuenta los movimientos de dinero.':'No hay datos suficientes para calcular la rentabilidad.';
+ document.getElementById('viewerReturnLabel').textContent='Rentabilidad';
+ document.getElementById('viewerReturnNote').textContent=result?.available&&Number.isFinite(result.twr)?'Importe ganado o perdido · porcentaje TWR, sin confundir las aportaciones con ganancias.':'No hay datos suficientes para calcular la rentabilidad.';
  document.getElementById('viewerTotalLabel').textContent=current?'Valor actual de tu cartera':`Valor al 31/12/${year}`;
  document.getElementById('viewerTotal').textContent=Number.isFinite(totalValue)?`${snapshot?.approximate?'≈ ':''}${eur(totalValue)}`:'No disponible';
  document.getElementById('viewerPositionsLabel').textContent=current?'Tus posiciones actuales':`Posiciones al 31/12/${year}`;
@@ -47,7 +47,7 @@ function renderViewerSummary(){
  const banks=new Map();for(const row of rows){const name=row.p.entity||'Sin entidad';if(!banks.has(name))banks.set(name,[]);banks.get(name).push(row)}
  document.getElementById('viewerPositions').innerHTML=banks.size?[...banks].map(([name,bankRows])=>{
   const bankItems=universe.filter(p=>(p.entity||'Sin entidad')===name),bankValue=bankRows.every(row=>Number.isFinite(row.value))?bankRows.reduce((sum,row)=>sum+row.value,0):null,bankResult=viewerPeriodResult(bankItems,year,current,bankValue);
-  return `<section class="viewer-bank"><div class="viewer-bank-head"><div class="viewer-bank-name">${entityWordmark(name)}</div><div class="viewer-bank-stats"><strong>${Number.isFinite(bankValue)?eur(bankValue):'No disponible'}</strong><span class="${viewerReturnClass(bankResult)}">Rentabilidad ${year}: ${viewerReturnText(bankResult)}</span></div></div><div class="viewer-bank-positions">${bankRows.map(row=>{const positionResult=viewerPeriodResult([row.p],year,current,row.value);return `<div class="viewer-position"><span>${esc(meta(row.p).name)}</span><div class="viewer-position-stats"><strong>${Number.isFinite(row.value)?eur(row.value):'No disponible'}</strong><small class="${viewerReturnClass(positionResult)}">Rentabilidad ${year}: ${viewerReturnText(positionResult)}</small></div></div>`}).join('')}</div></section>`
+  return `<section class="viewer-bank"><div class="viewer-bank-head"><div class="viewer-bank-name">${entityWordmark(name)}</div><div class="viewer-bank-stats"><strong>${Number.isFinite(bankValue)?eur(bankValue):'No disponible'}</strong><span class="${viewerReturnClass(bankResult)}">Rentabilidad: ${viewerReturnText(bankResult)}</span></div></div><div class="viewer-bank-positions">${bankRows.map(row=>{const positionResult=viewerPeriodResult([row.p],year,current,row.value);return `<div class="viewer-position"><span>${esc(meta(row.p).name)}</span><div class="viewer-position-stats"><strong>${Number.isFinite(row.value)?eur(row.value):'No disponible'}</strong><small class="${viewerReturnClass(positionResult)}">Rentabilidad: ${viewerReturnText(positionResult)}</small></div></div>`}).join('')}</div></section>`
  }).join(''):`<div class="notice">No había posiciones al ${current?'día de hoy':`31/12/${year}`}.</div>`;
 }
 function positionUnitsLabel(p,m=meta(p)){return isStockType(m.instrument_type)||p.isin===SAN_ISIN&&p.listingSymbol===SAN_LISTING?'acciones':'participaciones'}
