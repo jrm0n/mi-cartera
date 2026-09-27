@@ -1,0 +1,12 @@
+Mi Cartera v0.14.9 — resultado en dos líneas
+
+Sustituye en la raíz de GitHub estos cinco archivos:
+index.html, analysis.js, version.js, version.json y sw.js.
+
+En la vista de invitados y en las tarjetas de Resumen y Posiciones de la
+cuenta propietaria, bajo cada valor se muestra el resultado en euros y
+debajo su porcentaje. No se repiten las palabras «Rentabilidad» o «TWR»
+ni el año en cada tarjeta. El año sigue seleccionándose en el filtro.
+La pestaña Análisis conserva sus nombres técnicos y cálculos completos.
+
+No requiere SQL ni desplegar funciones de Supabase.

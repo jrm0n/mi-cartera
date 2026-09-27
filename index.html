@@ -62,6 +62,8 @@ main{width:100%;min-width:0;max-width:1180px;margin:auto;padding:18px 14px}.page
 .viewer-page{max-width:760px;margin:auto}.viewer-card{padding:23px;margin-bottom:14px}.viewer-label{font-size:17px;font-weight:750;color:var(--muted)}.viewer-amount{font-size:clamp(34px,8vw,52px);font-weight:850;letter-spacing:-.04em;margin:10px 0}.viewer-return{font-size:26px;font-weight:800;margin:10px 0}.viewer-dates{font-size:15px;line-height:1.6}.viewer-positions{display:grid;gap:10px}.viewer-position{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:15px;border:1px solid var(--line);border-radius:14px;background:var(--panel)}.viewer-position span{min-width:0;overflow-wrap:anywhere;font-size:16px}.viewer-position strong{white-space:nowrap;font-size:18px}.viewer-page #viewerSyncBtn{min-height:62px;font-size:19px;margin:16px 0 25px}[data-readonly="true"] .bottom-nav,[data-readonly="true"] .desktop-side{display:none!important}@media(min-width:800px){[data-readonly="true"] .app{padding-left:0}}
 .viewer-year{display:grid;gap:6px;max-width:240px;margin:0 0 16px;font-size:17px;font-weight:750}.viewer-year select{min-height:54px;padding:0 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--text);font-size:20px;font-weight:800}
 .viewer-bank{border:1px solid var(--line);border-radius:18px;background:var(--panel);overflow:hidden}.viewer-bank-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px;background:var(--panel2)}.viewer-bank-name{min-width:0;font-size:19px;font-weight:850}.viewer-bank-name .brand-logo-img{max-width:180px;max-height:34px;object-fit:contain}.viewer-bank-stats,.viewer-position-stats{display:grid;gap:5px;text-align:right;flex:0 0 auto}.viewer-bank-stats strong{font-size:20px}.viewer-bank-stats span,.viewer-position-stats small{font-size:13px}.viewer-bank-positions{display:grid;gap:0}.viewer-bank-positions .viewer-position{border:0;border-top:1px solid var(--line);border-radius:0;background:var(--panel)}.viewer-bank-positions .viewer-position strong{font-size:16px}@media(max-width:420px){.viewer-bank-head{align-items:flex-start;flex-direction:column}.viewer-bank-stats{text-align:left}.viewer-position{align-items:flex-start}.viewer-position-stats{max-width:45%;white-space:normal}.viewer-position-stats strong{white-space:normal}}
+.viewer-return-lines{display:grid;gap:4px}.viewer-return-lines span{font-size:14px;font-weight:750}.viewer-return.viewer-return-lines span{font-size:26px}
+#totalYtd{display:grid;gap:4px}.entity-value>.viewer-return-lines,.fund-value>.viewer-return-lines{margin-top:5px}
 .access-brand{display:none;align-items:baseline;gap:9px;font-weight:850;font-size:19px;letter-spacing:-.02em;white-space:nowrap}
 .access-page .portfolio-head,body:has(#page-access.active) .portfolio-head{display:none!important}
 .access-page .access-brand,body:has(#page-access.active) .access-brand{display:flex}
@@ -80,12 +82,12 @@ main{width:100%;min-width:0;max-width:1180px;margin:auto;padding:18px 14px}.page
     <div class="spacer"></div>
     <button class="sidebtn" id="installDesktop" style="display:none">Instalar app</button>
     <button class="sidebtn" id="themeDesktop">Modo oscuro</button>
-    <div class="muted" id="appVersionLabel" style="font-size:11px;padding:8px 4px">v0.14.8</div>
+    <div class="muted" id="appVersionLabel" style="font-size:11px;padding:8px 4px">v0.14.9</div>
   </aside>
 
   <header class="topbar"><div class="topbar-inner">
-    <div class="portfolio-head"><label class="eyebrow" for="portfolioSelect"><span>Cartera activa</span><span class="top-version" id="topVersionLabel">v0.14.8</span></label><select id="portfolioSelect" class="portfolio-select" aria-label="Seleccionar cartera"><option>Mi cartera</option></select></div>
-    <div class="access-brand">Mi Cartera <span class="top-version" id="accessVersionLabel">v0.14.8</span></div>
+    <div class="portfolio-head"><label class="eyebrow" for="portfolioSelect"><span>Cartera activa</span><span class="top-version" id="topVersionLabel">v0.14.9</span></label><select id="portfolioSelect" class="portfolio-select" aria-label="Seleccionar cartera"><option>Mi cartera</option></select></div>
+    <div class="access-brand">Mi Cartera <span class="top-version" id="accessVersionLabel">v0.14.9</span></div>
     <div class="spacer"></div>
     <span class="sync-badge" id="syncBadge">Conectando…</span>
     <button class="iconbtn" id="logoutBtn" aria-label="Cerrar sesión" title="Cerrar sesión">⇥</button>
@@ -100,7 +102,7 @@ main{width:100%;min-width:0;max-width:1180px;margin:auto;padding:18px 14px}.page
           <div class="eyebrow">Valor actual</div>
           <div class="hero-value" id="totalValue">—</div>
           <div class="hero-meta">
-            <span id="totalYtd" class="metric-positive">—</span>
+            <span id="totalYtd">—</span>
             <span class="muted" id="lastUpdate">VL hasta 18/09/2026</span>
           </div>
         </div>
@@ -119,7 +121,7 @@ main{width:100%;min-width:0;max-width:1180px;margin:auto;padding:18px 14px}.page
     <section class="page viewer-page" id="page-viewer">
       <label class="viewer-year" for="viewerYear">Año de la cartera<select id="viewerYear" aria-label="Año de la cartera"></select></label>
       <div class="hero-card viewer-card"><div class="viewer-label" id="viewerTotalLabel">Valor actual de tu cartera</div><div class="viewer-amount" id="viewerTotal">—</div><div class="viewer-dates" id="viewerPriceDate">—</div></div>
-      <div class="hero-card viewer-card"><div class="viewer-label" id="viewerReturnLabel">Rentabilidad de este año</div><div class="viewer-return" id="viewerReturn">—</div><div class="muted" id="viewerReturnNote">Tiene en cuenta las aportaciones y retiradas.</div></div>
+      <div class="hero-card viewer-card"><div class="viewer-label" id="viewerReturnLabel">Rentabilidad</div><div class="viewer-return viewer-return-lines" id="viewerReturn">—</div><div class="muted" id="viewerReturnNote">Tiene en cuenta las aportaciones y retiradas.</div></div>
       <button class="btn primary" id="viewerSyncBtn" type="button" onclick="syncViewerData()">Sincronizar datos</button>
       <div class="section-head"><h2 id="viewerPositionsLabel">Tus posiciones actuales</h2></div><div class="viewer-positions" id="viewerPositions"></div>
     </section>
@@ -146,7 +148,7 @@ main{width:100%;min-width:0;max-width:1180px;margin:auto;padding:18px 14px}.page
       <div class="analysis-card"><div class="eyebrow">Atribución del resultado</div><div class="muted" style="font-size:11px;margin-top:4px">Pulsa un instrumento, banco o temática para aplicar el filtro al resultado y al gráfico.</div><div id="attributionBody"></div></div>
       <div class="analysis-card"><div class="eyebrow">Calidad de los datos</div><div id="qualityBody"></div></div>
       <div class="analysis-card"><div class="eyebrow">Distribución temática</div><div class="mini-bars" id="themeBars"></div></div>
-      <div class="analysis-card"><div class="eyebrow">Datos y versión</div><p style="line-height:1.5;margin:8px 0 10px"><strong id="appVersionAnalysis">Mi Cartera v0.14.8 Cloud</strong> · esquema de datos <span id="schemaVersionAnalysis">10</span>.<br>Supabase es la fuente de verdad. La app conserva además una copia local de lectura para poder mostrar la última cartera si temporalmente no hay conexión.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small" id="exportBackupBtn" onclick="exportBackup()">Exportar copia</button><button class="btn small" onclick="document.getElementById('backupFile').click()">Comprobar copia</button><input id="backupFile" type="file" accept=".json,application/json" style="display:none" onchange="verifyBackupFile(this)"><button class="btn small" id="restoreBackupBtn" onclick="document.getElementById('restoreFile').click()">Restaurar copia</button><input id="restoreFile" type="file" accept=".json,application/json" style="display:none" onchange="restoreBackupFile(this)"><button class="btn small" onclick="syncFromCloud(true)">Sincronizar ahora</button></div><div class="muted" id="backupStatus" role="status" style="margin-top:8px"></div><div class="notice" id="cloudStatus" style="margin-top:10px">Conectando con Supabase…</div><div class="muted" id="signedUser" style="font-size:12px;margin-top:8px"></div></div>
+      <div class="analysis-card"><div class="eyebrow">Datos y versión</div><p style="line-height:1.5;margin:8px 0 10px"><strong id="appVersionAnalysis">Mi Cartera v0.14.9 Cloud</strong> · esquema de datos <span id="schemaVersionAnalysis">10</span>.<br>Supabase es la fuente de verdad. La app conserva además una copia local de lectura para poder mostrar la última cartera si temporalmente no hay conexión.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small" id="exportBackupBtn" onclick="exportBackup()">Exportar copia</button><button class="btn small" onclick="document.getElementById('backupFile').click()">Comprobar copia</button><input id="backupFile" type="file" accept=".json,application/json" style="display:none" onchange="verifyBackupFile(this)"><button class="btn small" id="restoreBackupBtn" onclick="document.getElementById('restoreFile').click()">Restaurar copia</button><input id="restoreFile" type="file" accept=".json,application/json" style="display:none" onchange="restoreBackupFile(this)"><button class="btn small" onclick="syncFromCloud(true)">Sincronizar ahora</button></div><div class="muted" id="backupStatus" role="status" style="margin-top:8px"></div><div class="notice" id="cloudStatus" style="margin-top:10px">Conectando con Supabase…</div><div class="muted" id="signedUser" style="font-size:12px;margin-top:8px"></div></div>
     </section>
     <section class="page" id="page-access"><div class="section-head"><h2>Carteras y accesos</h2></div><div class="analysis-card"><h3>Gestionar carteras</h3><p class="muted">Crea una cartera para cada perfil y cambia su nombre cuando lo necesites.</p><div id="portfolioManagementContents"></div></div><div class="analysis-card"><h3>Accesos</h3><p class="muted">Asigna a cada persona las carteras que puede consultar. Los invitados solo tienen permiso de lectura.</p><div id="accessContents">Cargando accesos…</div></div></section>
   </main>
