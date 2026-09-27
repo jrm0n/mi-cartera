@@ -4,6 +4,19 @@ window.restoreBackupFile=restoreBackupFile;
 
 function toggleTheme(){const root=document.documentElement;root.dataset.theme=root.dataset.theme==='dark'?'':'dark';localStorage.setItem(THEME_KEY,root.dataset.theme||'light');setTimeout(()=>{const c=document.getElementById('fundChart');if(c){const p=state.positions.find(x=>document.getElementById('detailBackdrop').classList.contains('open')&&document.getElementById('detailContent').textContent.includes(meta(x).name));if(p)drawChart(p,'YTD')}if(document.getElementById('page-analysis')?.classList.contains('active'))renderAnalysis()},30)}
 
+function closeViewerSync(){document.getElementById('viewerSyncOverlay').hidden=true;document.getElementById('viewerSyncBtn').focus()}
+async function syncViewerData(){
+ const button=document.getElementById('viewerSyncBtn');if(button.disabled)return;
+ const overlay=document.getElementById('viewerSyncOverlay'),spinner=document.getElementById('viewerSyncSpinner'),title=document.getElementById('viewerSyncTitle'),message=document.getElementById('viewerSyncMessage'),close=document.getElementById('viewerSyncClose');
+ button.disabled=true;overlay.hidden=false;spinner.hidden=false;close.hidden=true;title.textContent='Sincronizando datos…';message.textContent='Consultando la cartera en Supabase. Espera un momento.';
+ try{
+  const ok=await syncFromCloud(false);
+  title.textContent=ok?'Datos sincronizados':'No se pudo sincronizar';
+  message.textContent=ok?'La cartera ya muestra los datos disponibles en Supabase.':'Comprueba la conexión e inténtalo de nuevo.';
+ }catch(error){console.error(error);title.textContent='No se pudo sincronizar';message.textContent='Comprueba la conexión e inténtalo de nuevo.'}
+ finally{button.disabled=false;spinner.hidden=true;close.hidden=false;close.focus()}
+}
+
 async function init(){
  if(!SUPABASE_URL||!SUPABASE_KEY){showAuth();setAuthMessage('Configuración de Supabase incompleta.',true);return}
  if(await acceptInvitation())return;
