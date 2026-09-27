@@ -1,4 +1,4 @@
-function navigate(page){if(page==='access'&&state.readonly)return;document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id==='page-'+page));document.querySelectorAll('[data-page]').forEach(x=>x.classList.toggle('active',x.dataset.page===page));document.getElementById('newOpFab').style.display=page==='operations'&&!state.readonly?'block':'none';if(page==='positions')renderPositions();if(page==='operations')renderOps();if(page==='analysis')renderAnalysis();if(page==='access')openAccessManager()}
+function navigate(page){if(page==='access'&&state.readonly)return;document.body.classList.toggle('access-page',page==='access');document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id==='page-'+page));document.querySelectorAll('[data-page]').forEach(x=>x.classList.toggle('active',x.dataset.page===page));document.getElementById('newOpFab').style.display=page==='operations'&&!state.readonly?'block':'none';if(page==='positions')renderPositions();if(page==='operations')renderOps();if(page==='analysis')renderAnalysis();if(page==='access')openAccessManager()}
 document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>navigate(b.dataset.page));
 
 function entityOptions(){return Object.keys(ENTITY).map(e=>`<option>${esc(e)}</option>`).join('')}
@@ -143,4 +143,3 @@ async function updatePendingTransfer(id){
  catch(err){alert('No se pudo actualizar el traspaso: '+err.message)}
 }
 window.updatePendingTransfer=updatePendingTransfer;
-

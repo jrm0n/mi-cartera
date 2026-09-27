@@ -1,0 +1,9 @@
+Mi Cartera v0.13.1 · ajuste de la pestaña Accesos
+
+Si ya instalaste v0.13.0:
+- Sustituye index.html, operations.js, core.js, version.js y version.json en la raíz de GitHub. Después recarga Mi Cartera para comprobar v0.13.1.
+- No ejecutes de nuevo 017_portfolio_viewers_v0.13.0.sql ni cambies el secret MI_CARTERA_APP_URL.
+- La función invite-portfolio-viewer desplegada sigue funcionando sin cambios de código. En Supabase > Edge Functions > invite-portfolio-viewer > Settings, deja OFF «Verify JWT with legacy secret»; la función verifica el token contra Supabase Auth y comprueba la propiedad de la cartera.
+- En la pestaña Accesos solo se muestra el selector de cartera del formulario; el selector superior sigue disponible en Inicio, Posiciones, Operaciones y Análisis.
+
+Para instalar desde una versión anterior, sigue primero RELEASE_NOTES_0.13.0.txt con la corrección de la opción JWT que figura arriba.

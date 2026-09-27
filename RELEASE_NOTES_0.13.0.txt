@@ -5,7 +5,7 @@ PREPARACIÓN, EN ESTE ORDEN
 2. Ejecuta 017_portfolio_viewers_v0.13.0.sql en Supabase > SQL Editor. No mueve ni borra tus carteras u operaciones. Elimina el permiso general de lectura del historial técnico market_refresh_runs porque muestra ISIN de diferentes carteras.
 3. En Supabase > Authentication > URL Configuration, añade la URL HTTPS exacta publicada de Mi Cartera a Redirect URLs. La invitación debe volver a esa URL. Si la URL no está permitida, Supabase puede redirigir a Site URL sin dar error.
 4. En Supabase > Edge Functions > Secrets, define MI_CARTERA_APP_URL con esa misma URL HTTPS completa (por ejemplo, https://tu-sitio.example/mi-cartera/index.html). La función usa las variables estándar que Supabase proporciona al desplegarla: SUPABASE_URL, SUPABASE_PUBLISHABLE_KEYS y SUPABASE_SECRET_KEYS, o sus equivalentes antiguos SUPABASE_ANON_KEY y SUPABASE_SERVICE_ROLE_KEY.
-5. Despliega supabase/functions/invite-portfolio-viewer/index.ts como Edge Function llamada invite-portfolio-viewer. Mantén Verify JWT activado. La clave de servicio permanece en Supabase y NUNCA debe copiarse a config.js ni al repositorio público.
+5. Despliega supabase/functions/invite-portfolio-viewer/index.ts como Edge Function llamada invite-portfolio-viewer. En Settings, desactiva "Verify JWT with legacy secret" y guarda: la función comprueba por sí misma el token en Supabase Auth y la propiedad de la cartera. La clave de servicio permanece en Supabase y NUNCA debe copiarse a config.js ni al repositorio público.
 6. Publica el resto de archivos del paquete en la raíz del sitio. Espera a que la PWA actualice a v0.13.0.
 
 USO

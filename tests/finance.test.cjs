@@ -41,7 +41,7 @@ const app = loadApp();
 const evalInApp = expression => vm.runInContext(expression, app);
 
 test('la versión y las funciones esenciales cargan con el orden publicado', () => {
-  assert.equal(evalInApp('APP_VERSION'), '0.13.0');
+  assert.equal(evalInApp('APP_VERSION'), '0.13.1');
   assert.equal(typeof app.exportBackup, 'function');
   assert.equal(typeof app.retryRefreshTarget, 'function');
 });

@@ -210,7 +210,7 @@ async function ensureSession(){
 }
 async function signOut(){
  try{if(session?.access_token)await authFetch('/auth/v1/logout',{method:'POST',headers:{Authorization:`Bearer ${session.access_token}`}})}catch{}
- saveSession(null);session=null;cloudSnapshot=null;localStorage.removeItem(CACHE_KEY);localStorage.removeItem(ACTIVE_PORTFOLIO_KEY);state.positions=[];state.operations=[];state.portfolios=[];document.body.dataset.readonly='';showAuth();setAuthMessage('Sesión cerrada.');
+ saveSession(null);session=null;cloudSnapshot=null;localStorage.removeItem(CACHE_KEY);localStorage.removeItem(ACTIVE_PORTFOLIO_KEY);state.positions=[];state.operations=[];state.portfolios=[];document.body.dataset.readonly='';navigate('home');showAuth();setAuthMessage('Sesión cerrada.');
 }
 
 async function rest(path,options={},retry=true){

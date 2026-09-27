@@ -1,3 +1,7 @@
+v0.13.1 - 2026-09-27
+- Oculta el selector superior de cartera en la pestaña Accesos; sigue visible en las demás.
+- Corrige las instrucciones de verificación JWT de la función de invitaciones.
+
 v0.12.0 - 2026-09-26
 - Añade restauración de copias v2 para el mismo usuario y proyecto Supabase.
 - Requiere ejecutar la migración 016 antes de usar Restaurar copia.

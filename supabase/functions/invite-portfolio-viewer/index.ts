@@ -1,4 +1,5 @@
-// Publicar con verificación JWT activada. La clave de servicio solo vive en Supabase.
+// Desactivar "Verify JWT with legacy secret": esta función valida el token con Auth.
+// La clave de servicio solo vive en Supabase.
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info",
