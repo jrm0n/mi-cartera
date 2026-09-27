@@ -1,0 +1,5 @@
+Mi Cartera v0.13.2 · selector superior en «Accesos»
+
+Si ya publicaste v0.13.1, sustituye en la raíz de GitHub únicamente index.html, version.js y version.json. No repitas SQL ni toques la Edge Function o sus secrets.
+
+Esta versión hace depender la visibilidad del selector superior de la pestaña activa mediante CSS, incluso si el navegador mantiene temporalmente una versión anterior de operations.js. En Inicio, Posiciones, Operaciones y Análisis el selector permanece visible.
