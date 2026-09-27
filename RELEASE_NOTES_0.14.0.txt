@@ -1,0 +1,20 @@
+Mi Cartera v0.14.0 · Acciones cotizadas en EUR
+
+Esta entrega se aplica sobre v0.13.6. No necesita migración SQL.
+
+1. En Supabase > Edge Functions > resolve-fund, sustituye index.ts por el archivo
+   supabase/functions/resolve-fund/index.ts de este paquete y despliega la función.
+   Conserva providers.ts de la versión anterior. No cambies invite-portfolio-viewer.
+2. En la raíz del repositorio GitHub Pages, sustituye index.html, core.js,
+   operations.js, analysis.js, version.js y version.json. Espera la publicación.
+3. Abre la aplicación y verifica que indica v0.14.0.
+4. En una cartera de prueba, crea una operación «Compra» con el ISIN de una
+   acción que cotice en EUR. Selecciona exactamente la bolsa utilizada por el
+   intermediario. Indica acciones, precio por acción, importe sin comisiones y
+   comisiones separadas. Si los datos son definitivos, marca la casilla de
+   confirmación bancaria. Revisa valor, coste y rentabilidad en Posiciones.
+
+Alcance: acciones con cotización EUR, sin dividendos ni desdoblamientos. La
+aplicación identifica acciones por ISIN, exige bolsa y usa el cierre real de
+EODHD para su histórico. Otros instrumentos conservan su cálculo anterior.
+No se ha probado con la clave ni las carteras reales de Supabase.

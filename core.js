@@ -64,6 +64,7 @@ function fxRateToEur(currency){const code=String(currency||'EUR').toUpperCase();
 function fxRateAt(currency,date){const code=String(currency||'EUR').toUpperCase();if(code==='EUR')return 1;const rows=state.fxHistory?.[code]||[];let found=null;for(const row of rows){if(row.date<=date)found=row;else break}if(found&&dayDifference(date,found.date)<=7)return Number(found.rate)||null;return date===state.fxRates?.[code]?.date?fxRateToEur(code):null}
 const posValue=p=>{const raw=(+p.shares||0)*(+p.nav||0),rate=Number(p.eurRate||fxRateToEur(p.navCurrency));return rate>0?raw*rate:NaN};
 const meta=p=>state.funds?.[p.isin]||{name:p.isin,theme:'Sin clasificar',manager:'—',currency:'EUR'};
+const isStockType=type=>/\b(?:STOCK|EQUITY|SHARES?)\b/i.test(String(type||''));
 const total=()=>state.positions.reduce((a,p)=>a+posValue(p),0);
 
 async function refreshEurRates(currencies,fromDate=`${new Date().getFullYear()}-01-01`){
@@ -293,7 +294,7 @@ async function resolveFund(isin,includeHistory=false,forceMetadata=false,listing
  }
  if(!result)throw lastError||new Error('No se pudo identificar el instrumento.');
  const f=result?.fund||{};const old=state.funds?.[isin]||{};const latest=result?.requires_listing?null:(result?.latest_nav||old.latest_nav||null);
- state.funds[isin]={...old,...f,data_provider:f.provider||old.data_provider,provider_symbol:result?.requires_listing?null:(f.provider_symbol||old.provider_symbol),metadata_source:f.metadata_source||old.metadata_source,theme:(old.theme&&old.theme!=='Sin clasificar')?old.theme:(f.category||old.category||'Sin clasificar'),latest_nav:latest,quote_status:result?.quote_status||old.quote_status||null,sources:result?.sources||old.sources||null,requires_listing:!!result?.requires_listing};
+ state.funds[isin]={...old,...f,data_provider:f.provider||old.data_provider,provider_symbol:result?.requires_listing?null:(f.provider_symbol||old.provider_symbol),metadata_source:f.metadata_source||old.metadata_source,theme:(old.theme&&old.theme!=='Sin clasificar')?old.theme:(isStockType(f.instrument_type)?'Acciones':f.category||old.category||'Sin clasificar'),latest_nav:latest,quote_status:result?.quote_status||old.quote_status||null,sources:result?.sources||old.sources||null,requires_listing:!!result?.requires_listing};
  state.listings=state.listings||{};for(const l of result?.listings||[])state.listings[l.provider_symbol]={...state.listings[l.provider_symbol],...l,isin};
  saveCache();return result;
 }
@@ -372,7 +373,7 @@ function buildPositions(operations,accounts,funds,navRows,listingPriceRows=[]){
  const result=[],listingCountByIsin={};for(const l of Object.values(state.listings||{})){if(!l?.isin)continue;(listingCountByIsin[l.isin]??=new Set()).add(canonicalListingSymbol(l.isin,l.provider_symbol))}
  for(const g of groups.values()){
   if(Math.abs(g.shares)<1e-10)continue;
-  const f=fundMap[g.isin]||{},isEtf=String(f.instrument_type||'').toUpperCase().includes('ETF'),needsMarket=isEtf||(listingCountByIsin[g.isin]?.size||0)>1;
+  const f=fundMap[g.isin]||{},isEtf=String(f.instrument_type||'').toUpperCase().includes('ETF'),needsMarket=isEtf||isStockType(f.instrument_type)||(listingCountByIsin[g.isin]?.size||0)>1;
   if(needsMarket&&!g.listingSymbol){result.push({...g,nav:0,prevNav:0,navDate:null,navSource:null,navFetchedAt:null,navStatus:'market_required',m1:null,m3:null,ytd:null,m1Info:{value:null},m3Info:{value:null},ytdInfo:{value:null},historyApproximate:false});continue}
   const series=g.listingSymbol?(byListing[g.listingSymbol]||[]):(byIsin[g.isin]||[]),latestExact=latestExactRow(series),prevExact=previousExactRow(series,latestExact);
   const onlineIsCurrent=!!(latestExact&&(!g.latestOpDate||latestExact.nav_date>=g.latestOpDate));
