@@ -1,0 +1,14 @@
+Mi Cartera v0.14.4 — vista sencilla para invitados
+
+Sube a la raíz del repositorio de GitHub estos siete archivos:
+index.html, core.js, analysis.js, operations.js, version.js, version.json y sw.js.
+
+Las cuentas invitadas ven una única pantalla con el valor de su cartera,
+la rentabilidad del año, la fecha más antigua de los precios usados,
+la última sincronización, el valor de sus posiciones y un botón grande
+para sincronizar. Si falta un precio se indica en pantalla. La cuenta
+propietaria mantiene las cinco pestañas y la gestión habitual.
+
+No hay cambios de datos. No ejecutes SQL ni vuelvas a desplegar las
+funciones de Supabase. Tras subir los archivos, abre la app en la cuenta
+invitada, sincroniza y comprueba que solo se muestra la cartera asignada.

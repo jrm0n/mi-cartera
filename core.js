@@ -217,7 +217,7 @@ async function ensureSession(){
 }
 async function signOut(){
  try{if(session?.access_token)await authFetch('/auth/v1/logout',{method:'POST',headers:{Authorization:`Bearer ${session.access_token}`}})}catch{}
- saveSession(null);session=null;cloudSnapshot=null;localStorage.removeItem(CACHE_KEY);localStorage.removeItem(ACTIVE_PORTFOLIO_KEY);state.positions=[];state.operations=[];state.portfolios=[];document.body.dataset.readonly='';navigate('home');showAuth();setAuthMessage('Sesión cerrada.');
+ saveSession(null);session=null;cloudSnapshot=null;localStorage.removeItem(CACHE_KEY);localStorage.removeItem(ACTIVE_PORTFOLIO_KEY);state.positions=[];state.operations=[];state.portfolios=[];state.readonly=false;document.body.dataset.readonly='';navigate('home');showAuth();setAuthMessage('Sesión cerrada.');
 }
 
 async function rest(path,options={},retry=true){
@@ -409,7 +409,7 @@ function mapOperations(ops,transfers,accounts){
 }
 
 function activePortfolio(){return state.portfolios.find(p=>p.id===state.activePortfolioId)||null}
-function updateAccessMode(){state.readonly=!!(activePortfolio()&&activePortfolio().user_id!==session?.user?.id);document.body.dataset.readonly=state.readonly?'true':'false';if(state.readonly&&document.getElementById('page-access')?.classList.contains('active'))navigate('home')}
+function updateAccessMode(){state.readonly=!!(activePortfolio()&&activePortfolio().user_id!==session?.user?.id);document.body.dataset.readonly=state.readonly?'true':'false';if(state.readonly&&!document.getElementById('page-viewer')?.classList.contains('active'))navigate('viewer');else if(!state.readonly&&document.getElementById('page-viewer')?.classList.contains('active'))navigate('home')}
 function renderPortfolioSelector(){
  const sel=document.getElementById('portfolioSelect');if(!sel)return;
  const rows=(state.portfolios||[]).filter(p=>p.active!==false);sel.innerHTML=rows.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
@@ -473,7 +473,7 @@ async function syncFromCloud(showNotice=false){
    const fxDates=[...(navs||[]).map(n=>n.nav_date),...(listingPrices||[]).map(p=>p.price_date),...(ops||[]).flatMap(o=>[o.operation_date,o.execution_date,o.reference_nav_date]),...(recurringRules||[]).map(r=>r.start_date)].filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(String(d))).sort();
    await refreshEurRates([...(funds||[]).map(f=>f.currency),...(listings||[]).map(l=>l.currency),...(navs||[]).map(n=>n.currency),...(listingPrices||[]).map(p=>p.currency)],fxDates[0]||`${new Date().getFullYear()}-01-01`);
    const lastFund=(navs||[]).reduce((m,n)=>!m||n.nav_date>m?n.nav_date:m,null);const lastListing=(listingPrices||[]).reduce((m,n)=>!m||n.price_date>m?n.price_date:m,null);state.lastNavUpdate=[lastFund,lastListing].filter(Boolean).sort().at(-1)||null;
-   applyActivePortfolio();
+   state.cloudSyncedAt=new Date().toISOString();applyActivePortfolio();
    setCloudStatus('Sincronizado con Supabase','ok');if(showNotice)alert('Datos sincronizados con Supabase.');return true;
  }catch(err){console.error(err);if(String(err?.message||'').startsWith('NO_ACCESS:')){localStorage.removeItem(CACHE_KEY);state.positions=[];state.operations=[];state.portfolios=[];showAuth();setAuthMessage(err.message.slice(11),true);return false}const missingRecurring=/recurring_operations|PGRST205|42P01/i.test(String(err?.message||err));setCloudStatus(missingRecurring?'Falta migración 015 · usando última copia local':'Sin conexión · mostrando última copia local','warn');if(showNotice)alert('No se pudo sincronizar: '+(missingRecurring?'ejecuta 015_recurring_operations_v0.7.0.sql en Supabase.':err.message));return false}
 }
