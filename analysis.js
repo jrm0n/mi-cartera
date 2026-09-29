@@ -21,11 +21,9 @@ function viewerHistoricalSnapshot(universe,year){
 }
 function viewerPeriodResult(items,year,current,closingValue){
  if(!Number.isFinite(closingValue))return null;
- if(current)return portfolioPerformanceForPeriod(items,year);
- const endDate=`${year}-12-31`,values=portfolioRowsBetween(portfolioEvolutionSeries(items),`${year}-01-01`,endDate);
- if(values.length&&values.at(-1).date!==endDate)values.push({date:endDate,value:closingValue});
- return portfolioPerformance(items,values);
+ return portfolioPerformanceForPeriod(items,year);
 }
+
 function viewerReturnLines(result){
  if(!result?.available||!Number.isFinite(result.pnl)||!Number.isFinite(result.twr))return'<span class="muted">No disponible</span>';
  return `<span class="${result.pnl>=0?'metric-positive':'metric-negative'}">${result.pnl>=0?'+':''}${eur(result.pnl)}</span><span class="${result.twr>=0?'metric-positive':'metric-negative'}">${pct(result.twr)}</span>`;
@@ -121,20 +119,24 @@ function renderAnalysisScope(universe){
  bar.querySelector('[data-scope-action="back"]')?.addEventListener('click',()=>resetAnalysisFilter(true));bar.querySelector('[data-scope-action="all"]')?.addEventListener('click',()=>resetAnalysisFilter(false));
 }
 function analysisOperationDate(o){return o.referenceBaseYear?`${o.referenceBaseYear}-01-01`:opEffectiveDate(o)}
-function analysisSharesAt(p,date){return positionOperations(p).reduce((sum,o)=>{const d=analysisOperationDate(o);return d&&d<=date?sum+(+o.sharesDelta||0):sum},0)}
-function analysisPriceAt(p,date){const series=positionSeries(p);let row=null;for(let i=series.length-1;i>=0;i--){if(series[i].nav_date<=date){row=series[i];break}}const op=[...positionOperations(p)].reverse().find(o=>{const d=opEffectiveDate(o);return d&&d<=date&&+o.nav>0}),opDate=op?opEffectiveDate(op):null;if(op&&(!row||opDate>row.nav_date))return{nav_date:opDate,nav:+op.nav,currency:p.navCurrency||null,source:'Precio de operación',isApproximate:false};return row}
+function analysisSharesAt(p,date){const rows=operationPrefixes(p).quantities,index=lastIndexAt(rows,date,row=>row.date);return index<0?0:rows[index].shares}
+function analysisPriceAt(p,date){
+ const series=positionSeries(p),index=lastIndexAt(series,date,row=>row.nav_date),row=series[index]||null,ops=operationPrefixes(p).prices,opIndex=lastIndexAt(ops,date,opEffectiveDate),op=ops[opIndex]||null,opDate=op?opEffectiveDate(op):null;
+ if(op&&(!row||opDate>row.nav_date))return{nav_date:opDate,nav:+op.nav,currency:p.navCurrency||null,source:'Precio de operación',isApproximate:false};return row;
+}
 function analysisReferenceAt(p,date){return Object.entries(p.referenceBases||{}).map(([year,amount])=>({year:Number(year),start:`${year}-01-01`,amount:+amount})).filter(x=>x.amount>0&&x.start<=date).sort((a,b)=>b.year-a.year)[0]||null}
 function analysisFallbackValueAt(p,date,shares){
- const ref=analysisReferenceAt(p,date),ops=positionOperations(p);if(ref){let value=ref.amount;for(const o of ops){const d=analysisOperationDate(o);if(!d||d<=ref.start||d>date||o.referenceBaseYear||o.sanKind==='reinvestment')continue;const amount=Math.abs(+o.amount||0),fees=Math.max(0,+o.fees||0),delta=+o.sharesDelta||0;if(delta>0)value+=amount+fees;else if(delta<0)value-=Math.max(0,amount-fees)}return Math.max(0,value)}
- const op=[...ops].reverse().find(o=>{const d=analysisOperationDate(o);return d&&d<=date&&+o.nav>0});if(!op)return null;const currency=String(p.navCurrency||(p.listingSymbol?state.listings?.[p.listingSymbol]?.currency:null)||state.funds?.[p.isin]?.currency||'EUR').toUpperCase(),rate=fxRateAt(currency,date);return rate>0?shares*(+op.nav)*rate:null;
+ const ops=operationPrefixes(p).prices,index=lastIndexAt(ops,date,opEffectiveDate),op=ops[index];
+ if(!op||dayDifference(date,opEffectiveDate(op))>MAX_HISTORICAL_PRICE_AGE_DAYS)return null;
+ const currency=String(p.navCurrency||(p.listingSymbol?state.listings?.[p.listingSymbol]?.currency:null)||state.funds?.[p.isin]?.currency||'EUR').toUpperCase(),rate=fxRateAt(currency,date);return rate>0?shares*(+op.nav)*rate:null;
 }
 function analysisValueAt(p,date){
- const shares=analysisSharesAt(p,date);if(Math.abs(shares)<1e-10)return 0;const ref=analysisReferenceAt(p,date);if(ref&&date===ref.start)return ref.amount;let row=analysisPriceAt(p,date);if(ref&&row&&row.nav_date<ref.start)row=null;if(!row)return analysisFallbackValueAt(p,date,shares);const currency=String(row.currency||p.navCurrency||(p.listingSymbol?state.listings?.[p.listingSymbol]?.currency:null)||state.funds?.[p.isin]?.currency||'EUR').toUpperCase(),rate=fxRateAt(currency,date);return rate>0?shares*(+row.nav)*rate:null;
+ const shares=analysisSharesAt(p,date);if(Math.abs(shares)<1e-10)return 0;const ref=analysisReferenceAt(p,date);if(ref&&date===ref.start)return ref.amount;let row=analysisPriceAt(p,date);if(ref&&row&&row.nav_date<ref.start)row=null;if(!row)return analysisFallbackValueAt(p,date,shares);if(dayDifference(date,row.nav_date)>MAX_HISTORICAL_PRICE_AGE_DAYS)return null;const currency=String(row.currency||p.navCurrency||(p.listingSymbol?state.listings?.[p.listingSymbol]?.currency:null)||state.funds?.[p.isin]?.currency||'EUR').toUpperCase(),rate=fxRateAt(currency,date);return rate>0?shares*(+row.nav)*rate:null;
 }
-function portfolioEvolutionSeries(items){
+function portfolioEvolutionSeries(items){return memoCalculation('evolution',calculationScopeKey(items),()=>{
  const dates=new Set();for(const p of items){for(const r of positionSeries(p))dates.add(r.nav_date);for(const o of positionOperations(p)){const d=analysisOperationDate(o);if(d)dates.add(d)}for(const year of Object.keys(p.referenceBases||{}))dates.add(`${year}-01-01`)}
- const rows=[];for(const date of [...dates].filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort()){let value=0,complete=items.length>0;for(const p of items){const v=analysisValueAt(p,date);if(!Number.isFinite(v)){complete=false;break}value+=v}if(complete)rows.push({date,value})}return rows;
-}
+ const rows=[],missingDates=[];for(const date of [...dates].filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort()){let value=0,complete=items.length>0;for(const p of items){const v=analysisValueAt(p,date);if(!Number.isFinite(v)){complete=false;break}value+=v}if(complete)rows.push({date,value});else missingDates.push(date)}rows.missingDates=missingDates;return rows;
+});}
 function analysisRangeTarget(lastDate,range){const d=new Date(lastDate+'T00:00:00Z');if(range==='D5')d.setUTCDate(d.getUTCDate()-5);else if(range==='M1')d.setUTCMonth(d.getUTCMonth()-1);else if(range==='M3')d.setUTCMonth(d.getUTCMonth()-3);else if(range==='M6')d.setUTCMonth(d.getUTCMonth()-6);else if(range==='Y1')d.setUTCFullYear(d.getUTCFullYear()-1);else if(range==='Y2')d.setUTCFullYear(d.getUTCFullYear()-2);else if(range==='Y3')d.setUTCFullYear(d.getUTCFullYear()-3);else if(range==='Y5')d.setUTCFullYear(d.getUTCFullYear()-5);else if(range==='YTD')return `${d.getUTCFullYear()}-01-01`;else return null;return d.toISOString().slice(0,10)}
 function portfolioRowsForRange(rows,range){if(rows.length<2||range==='MAX')return rows;if(range==='D1')return rows.slice(-2);const target=analysisRangeTarget(rows.at(-1).date,range);if(!target)return rows;const after=rows.filter(r=>r.date>=target),prior=[...rows].reverse().find(r=>r.date<target);if(prior&&(!after.length||after[0].date!==target))after.unshift({date:target,value:prior.value,carried:true});return after}
 function analysisRangeLabel(range){return({D1:'1 día',D5:'5 días',M1:'1 mes',M3:'3 meses',M6:'6 meses',Y1:'1 año',YTD:'año en curso',Y2:'2 años',Y3:'3 años',Y5:'5 años',MAX:'desde inicio'})[range]||range}
@@ -152,20 +154,51 @@ function analysisFlowEvents(items){
  return events.sort((a,b)=>a.date.localeCompare(b.date));
 }
 function portfolioRowsBetween(rows,startDate,endDate){const eligible=rows.filter(r=>(!endDate||r.date<=endDate));if(!startDate)return eligible;const after=eligible.filter(r=>r.date>=startDate),prior=[...eligible].reverse().find(r=>r.date<startDate);if(prior&&(!after.length||after[0].date!==startDate))after.unshift({date:startDate,value:prior.value,carried:true});return after}
-function simpleReturnSeries(items,valueRows){if(!valueRows.length)return[];const startDate=valueRows[0].date,opening=+valueRows[0].value||0,events=analysisFlowEvents(items).filter(e=>e.date>startDate);return valueRows.map(r=>{let purchases=0,sales=0;for(const e of events){if(e.date>r.date)break;purchases+=e.purchases;sales+=e.sales}const capital=opening+purchases,value=capital>0?(r.value+sales-opening-purchases)/capital*100:null;return{...r,value,portfolioValue:r.value,purchases,sales,netFlow:purchases-sales}}).filter(r=>Number.isFinite(r.value))}
-function twrReturnSeries(items,valueRows){if(!valueRows.length)return[];const events=analysisFlowEvents(items),rows=[{...valueRows[0],portfolioValue:valueRows[0].value,value:0,netFlow:0}],start=valueRows[0].date;let cumulative=1,valid=(+valueRows[0].value)>0;for(let i=1;i<valueRows.length;i++){const prev=valueRows[i-1],row=valueRows[i];let purchases=0,sales=0;for(const e of events){if(e.date<=prev.date||e.date>row.date||e.date<=start)continue;purchases+=e.purchases;sales+=e.sales}const netFlow=purchases-sales,factor=+prev.value>0?(+row.value-netFlow)/+prev.value:null;if(!(factor>0)){valid=false;rows.push({...row,portfolioValue:row.value,value:null,netFlow,purchases,sales});continue}if(valid)cumulative*=factor;rows.push({...row,portfolioValue:row.value,value:valid?(cumulative-1)*100:null,netFlow,purchases,sales})}return rows.filter(r=>Number.isFinite(r.value))}
+function simpleReturnSeries(items,valueRows){
+ if(!valueRows.length)return[];const opening=+valueRows[0].value||0,events=analysisFlowEvents(items).filter(e=>e.date>valueRows[0].date);let cursor=0,purchases=0,sales=0;
+ return valueRows.map(row=>{while(cursor<events.length&&events[cursor].date<=row.date){purchases+=events[cursor].purchases;sales+=events[cursor].sales;cursor++}const capital=opening+purchases,value=capital>0?(row.value+sales-opening-purchases)/capital*100:null;return{...row,value,portfolioValue:row.value,purchases,sales,netFlow:purchases-sales}}).filter(row=>Number.isFinite(row.value));
+}
+function twrReturnSeries(items,valueRows){
+ if(!valueRows.length)return[];const events=analysisFlowEvents(items),rows=[{...valueRows[0],portfolioValue:valueRows[0].value,value:0,netFlow:0}];let cumulative=1,valid=(+valueRows[0].value)>0,cursor=0;
+ while(cursor<events.length&&events[cursor].date<=valueRows[0].date)cursor++;
+ for(let i=1;i<valueRows.length;i++){const prev=valueRows[i-1],row=valueRows[i];let purchases=0,sales=0;while(cursor<events.length&&events[cursor].date<=row.date){purchases+=events[cursor].purchases;sales+=events[cursor].sales;cursor++}const netFlow=purchases-sales,factor=+prev.value>0?(+row.value-netFlow)/+prev.value:null;if(!(factor>0)){valid=false;rows.push({...row,portfolioValue:row.value,value:null,netFlow,purchases,sales});continue}if(valid)cumulative*=factor;rows.push({...row,portfolioValue:row.value,value:valid?(cumulative-1)*100:null,netFlow,purchases,sales})}
+ return rows.filter(row=>Number.isFinite(row.value));
+}
 function xnpv(rate,flows){if(!(rate>-1)||!flows.length)return NaN;const t0=new Date(flows[0].date+'T00:00:00Z').getTime();return flows.reduce((sum,f)=>sum+f.amount/Math.pow(1+rate,(new Date(f.date+'T00:00:00Z').getTime()-t0)/31557600000),0)}
-function xirrPercent(flows){const merged=new Map();for(const f of flows)merged.set(f.date,(merged.get(f.date)||0)+f.amount);const rows=[...merged].map(([date,amount])=>({date,amount})).filter(f=>Math.abs(f.amount)>1e-8).sort((a,b)=>a.date.localeCompare(b.date));if(rows.length<2||!rows.some(f=>f.amount<0)||!rows.some(f=>f.amount>0))return null;let previousRate=-.9999,previousValue=xnpv(previousRate,rows);for(let i=1;i<=800;i++){const x=Math.log(.0001)+(Math.log(1001)-Math.log(.0001))*i/800,rate=Math.exp(x)-1,value=xnpv(rate,rows);if(Number.isFinite(value)&&Number.isFinite(previousValue)&&(value===0||value*previousValue<0)){let low=previousRate,high=rate,lowValue=previousValue;for(let j=0;j<120;j++){const mid=(low+high)/2,midValue=xnpv(mid,rows);if(Math.abs(midValue)<1e-7)return mid*100;if(lowValue*midValue<=0)high=mid;else{low=mid;lowValue=midValue}}return((low+high)/2)*100}previousRate=rate;previousValue=value}return null}
+function xirrPercent(flows){const merged=new Map();for(const f of flows)merged.set(f.date,(merged.get(f.date)||0)+f.amount);const rows=[...merged].map(([date,amount])=>({date,amount})).filter(f=>Math.abs(f.amount)>1e-8).sort((a,b)=>a.date.localeCompare(b.date));if(rows.length<2||!rows.some(f=>f.amount<0)||!rows.some(f=>f.amount>0))return null;const t0=new Date(rows[0].date+'T00:00:00Z').getTime(),years=rows.map(row=>(new Date(row.date+'T00:00:00Z').getTime()-t0)/31557600000),npv=rate=>rows.reduce((sum,row,index)=>sum+row.amount/Math.pow(1+rate,years[index]),0);let previousRate=-.9999,previousValue=npv(previousRate);for(let i=1;i<=800;i++){const x=Math.log(.0001)+(Math.log(1001)-Math.log(.0001))*i/800,rate=Math.exp(x)-1,value=npv(rate);if(Number.isFinite(value)&&Number.isFinite(previousValue)&&(value===0||value*previousValue<0)){let low=previousRate,high=rate,lowValue=previousValue;for(let j=0;j<120;j++){const mid=(low+high)/2,midValue=npv(mid);if(Math.abs(midValue)<1e-7)return mid*100;if(lowValue*midValue<=0)high=mid;else{low=mid;lowValue=midValue}}return((low+high)/2)*100}previousRate=rate;previousValue=value}return null}
 function portfolioPerformance(items,valueRows){const firstPositive=valueRows.findIndex(r=>+r.value>1e-10);if(firstPositive>0)valueRows=valueRows.slice(firstPositive);if(!valueRows.length||firstPositive<0)return{available:false,items,valueRows:[],events:[],movementEvents:[],opening:0,closing:0,purchases:0,sales:0,capital:0,pnl:0,simple:null,twr:null,xirr:null,twrRows:[],simpleRows:[]};const startDate=valueRows[0].date,endDate=valueRows.at(-1).date,opening=+valueRows[0].value||0,closing=+valueRows.at(-1).value||0,periodEvents=analysisFlowEvents(items).filter(e=>e.date>=startDate&&e.date<=endDate),events=periodEvents.filter(e=>e.date>startDate),movementEvents=periodEvents.map(e=>({...e,opening:e.date===startDate})),purchases=events.reduce((a,e)=>a+e.purchases,0),sales=events.reduce((a,e)=>a+e.sales,0),capital=opening+purchases,pnl=closing+sales-opening-purchases,simple=capital>0?pnl/capital*100:null,twrRows=twrReturnSeries(items,valueRows),twr=twrRows.length?twrRows.at(-1).value:null,xirrFlows=[{date:startDate,amount:-opening},...events.map(e=>({date:e.date,amount:e.sales-e.purchases})),{date:endDate,amount:closing}],xirr=xirrPercent(xirrFlows);return{available:valueRows.length>1,items,valueRows,events,movementEvents,startDate,endDate,opening,closing,purchases,sales,capital,pnl,simple,twr,xirr,twrRows,simpleRows:simpleReturnSeries(items,valueRows)}}
-function portfolioPerformanceForRange(items,range){return portfolioPerformance(items,portfolioRowsForRange(portfolioEvolutionSeries(items),range))}
-function portfolioPerformanceForPeriod(items,period=state.period){const rows=portfolioEvolutionSeries(items);if(period==='total')return portfolioPerformance(items,rows);const year=Number(period);if(!Number.isInteger(year))return portfolioPerformance(items,rows);return portfolioPerformance(items,portfolioRowsBetween(rows,`${year}-01-01`,`${year}-12-31`))}
+function performanceWithCoverage(items,rows,startDate,endDate){
+ const selected=portfolioRowsBetween(rows,startDate,endDate),closingDate=endDate&&endDate<todayISO()?endDate:todayISO();
+ let boundaryMissing=false;
+ for(const date of [startDate,closingDate].filter(Boolean)){
+  if(!items.length)continue;
+  const values=items.map(p=>analysisValueAt(p,date));
+  if(values.some(value=>!Number.isFinite(value))){boundaryMissing=true;continue}
+  const value=values.reduce((sum,n)=>sum+n,0),index=selected.findIndex(row=>row.date===date);
+  if(index>=0)selected[index]={date,value};else selected.push({date,value});
+ }
+ selected.sort((a,b)=>a.date.localeCompare(b.date));
+ const performance=portfolioPerformance(items,selected);
+ const invalid=items.some(p=>(state.calculationIssues||[]).some(issue=>issue.accountId===p.accountId&&issue.isin===p.isin));
+ const missing=invalid||boundaryMissing||(rows.missingDates||[]).some(date=>(!startDate||date>=startDate)&&(!endDate||date<=endDate));
+ if(missing){performance.available=false;performance.coverageIssue='missing_valuation';performance.twr=null;performance.simple=null;performance.xirr=null}
+ return performance;
+}
+function portfolioPerformanceForRange(items,range){return memoCalculation('range',range+'|'+calculationScopeKey(items),()=>{
+ const rows=portfolioEvolutionSeries(items),selected=portfolioRowsForRange(rows,range),performance=portfolioPerformance(items,selected),start=selected[0]?.date,end=[rows.at(-1)?.date,(rows.missingDates||[]).at(-1)].filter(Boolean).sort().at(-1);
+ if(items.some(p=>(state.calculationIssues||[]).some(issue=>issue.accountId===p.accountId&&issue.isin===p.isin))||(rows.missingDates||[]).some(date=>(!start||date>=start)&&(!end||date<=end))||items.some(p=>Math.abs(analysisSharesAt(p,todayISO()))>1e-10&&!Number.isFinite(analysisValueAt(p,todayISO())))){performance.available=false;performance.coverageIssue='missing_valuation';performance.twr=null;performance.simple=null;performance.xirr=null}
+ return performance;
+})}
+function portfolioPerformanceForPeriod(items,period=state.period){return memoCalculation('period',String(period)+'|'+calculationScopeKey(items),()=>{
+ const rows=portfolioEvolutionSeries(items);if(period==='total')return performanceWithCoverage(items,rows,null,todayISO());const year=Number(period);if(!Number.isInteger(year))return performanceWithCoverage(items,rows,null,todayISO());return performanceWithCoverage(items,rows,`${year}-01-01`,`${year}-12-31`);
+})}
 function performanceValueText(value){return Number.isFinite(value)?pct(value):'N/D'}
 function eventLabel(e){return e.referenceBase?'Base de apertura':e.kind==='withdrawal'?'Retirada/venta':e.kind==='transfer_in'?'Traspaso recibido':e.kind==='transfer_out'?'Traspaso enviado':'Aportación/compra'}
 function performanceNetFlows(performance){return performance.purchases-performance.sales}
 function performancePatrimonialDifference(performance){return performance.closing-performance.opening}
 function performanceConsistencyDifference(performance){return performance.closing-(performance.opening+performance.purchases-performance.sales+performance.pnl)}
 function renderPerformanceSummary(performance,range){
- const label=document.getElementById('performancePeriodLabel'),kpis=document.getElementById('performanceKpis'),audit=document.getElementById('performanceAudit');if(!label||!kpis||!audit)return;label.textContent=analysisRangeLabel(range);if(!performance.available){kpis.innerHTML='<div class="notice">Sin histórico suficiente.</div>';audit.innerHTML='No hay dos valoraciones válidas para auditar este periodo.';return}
+ const label=document.getElementById('performancePeriodLabel'),kpis=document.getElementById('performanceKpis'),audit=document.getElementById('performanceAudit');if(!label||!kpis||!audit)return;label.textContent=analysisRangeLabel(range);if(!performance.available){kpis.innerHTML=performance.coverageIssue?'<div class="notice">No disponible: faltan precios válidos para alguna fecha del periodo.</div>':'<div class="notice">Sin histórico suficiente.</div>';audit.innerHTML=performance.coverageIssue?'No se utiliza un precio con más de 14 días de antigüedad para completar una valoración histórica.':'No hay dos valoraciones válidas para auditar este periodo.';return}
  const cls=n=>!Number.isFinite(n)?'':n>=0?'metric-positive':'metric-negative',patrimonial=performancePatrimonialDifference(performance),netFlows=performanceNetFlows(performance),consistency=performanceConsistencyDifference(performance),consistent=Math.abs(consistency)<.01;
  kpis.innerHTML=`<div class="analytics-kpi"><span>Resultado de la inversión</span><strong class="${cls(performance.pnl)}">${performance.pnl>=0?'+':''}${eur(performance.pnl)}</strong><small>Excluye aportaciones y retiradas.</small></div><div class="analytics-kpi"><span>Variación del patrimonio</span><strong class="${cls(patrimonial)}">${patrimonial>=0?'+':''}${eur(patrimonial)}</strong><small>Incluye aportaciones y retiradas.</small></div><div class="analytics-kpi"><span>TWR acumulada</span><strong class="${cls(performance.twr)}">${performanceValueText(performance.twr)}</strong><small>Rendimiento sin el efecto de los flujos.</small></div><div class="analytics-kpi"><span>XIRR anualizada</span><strong class="${cls(performance.xirr)}">${performanceValueText(performance.xirr)}</strong><small>Tasa anualizada; no es una previsión.</small></div>`;
  const ops=performance.events.length?performance.events.map(e=>`<div class="audit-op"><span>${esc(e.date)}</span><span>${esc(eventLabel(e))} · ${esc(e.name||e.isin||'')}</span><strong>${e.purchases?'+ '+eur(e.purchases):'− '+eur(e.sales)}</strong></div>`).join(''):'<div class="muted" style="padding-top:8px">Sin aportaciones ni retiradas posteriores al valor inicial.</div>';
@@ -246,9 +279,18 @@ function renderAnalysis(){
  renderAnalysisScope(universe);renderAnalysisComparisonControls(universe);renderPerformanceSummary(performance,state.analysisRange);renderAttribution(baseItems,state.analysisRange,basePerformance);renderDataQuality(items,state.analysisRange);
  for(const b of metricButtons){const active=b.dataset.metric===state.analysisMetric;b.classList.toggle('active',active);b.setAttribute('aria-pressed',active?'true':'false');b.onclick=()=>{state.analysisMetric=b.dataset.metric;saveCache();for(const x of metricButtons){const on=x===b;x.classList.toggle('active',on);x.setAttribute('aria-pressed',on?'true':'false')}drawPortfolioChart(scopes,state.analysisRange,state.analysisMetric)}}
  for(const b of buttons){const active=b.dataset.range===state.analysisRange;b.classList.toggle('active',active);b.setAttribute('aria-pressed',active?'true':'false');b.onclick=()=>{state.analysisRange=b.dataset.range;saveCache();renderAnalysis()}}
- setTimeout(()=>drawPortfolioChart(scopes,state.analysisRange,state.analysisMetric),0);
+ setTimeout(()=>{if(document.getElementById('page-analysis')?.classList.contains('active'))drawPortfolioChart(scopes,state.analysisRange,state.analysisMetric)},0);
 }
-function renderAll(){renderPortfolioSelector();if(state.readonly){renderViewerSummary();return}renderPeriodSelectors();renderHome();renderPositions();renderOps();renderAnalysis()}
+const renderedPageKeys=new Map();
+function renderVisiblePage(force=false){
+ ensureCalculationInputs();const active=[...document.querySelectorAll('.page')].find(page=>page.classList.contains('active')),page=state.readonly?'viewer':active?.id?.replace('page-','')||'home';
+ if(page==='access'){void openAccessManager();return}
+ const key=JSON.stringify([calculationRevision,state.activePortfolioId,state.period,state.group,state.opFilter,document.getElementById('positionSearch')?.value||'',state.analysisEntity,state.analysisRange,state.analysisMetric,state.analysisDrill,state.analysisComparisons,state.lastValue,state.cloudSyncedAt,state.refreshReport?.finishedAt,document.documentElement.dataset.theme]);
+ if(!force&&renderedPageKeys.get(page)===key)return;
+ const render={home:renderHome,viewer:renderViewerSummary,positions:renderPositions,operations:renderOps,analysis:renderAnalysis}[page];if(render){render();renderedPageKeys.set(page,key)}
+}
+function renderAll(){renderPortfolioSelector();if(!state.readonly)renderPeriodSelectors();renderVisiblePage()}
+
 
 function rangeDate(range){const d=new Date();if(range==='M1')d.setMonth(d.getMonth()-1);else if(range==='M3')d.setMonth(d.getMonth()-3);else if(range==='M6')d.setMonth(d.getMonth()-6);else if(range==='Y1')d.setFullYear(d.getFullYear()-1);else if(range==='Y2')d.setFullYear(d.getFullYear()-2);else if(range==='Y3')d.setFullYear(d.getFullYear()-3);else if(range==='Y5')d.setFullYear(d.getFullYear()-5);else if(range==='YTD')return new Date(Date.UTC(d.getUTCFullYear(),0,1));else return new Date(0);return d}
 function seriesRowsFor(p,range){const rows=normalizeSeries(p.listingSymbol?(listingHistory[p.listingSymbol]||[]):(navHistory[p.isin]||[]));if(range==='D1')return rows.filter(r=>Number.isFinite(+r.nav)&&+r.nav>0).slice(-2);const target=rangeDate(range).getTime();return rows.filter(r=>new Date(r.nav_date+'T00:00:00Z').getTime()>=target&&Number.isFinite(+r.nav)&&+r.nav>0)}

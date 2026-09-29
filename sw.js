@@ -1,12 +1,18 @@
 importScripts('./version.js');
-// v0.14.15: incidencias de cálculo y actualización fiable.
+// v0.15.0: instalación completa y recursos de una misma versión.
 const CACHE='mi-cartera-v'+self.MI_CARTERA_VERSION;
 const ASSETS=['./','./index.html','./manifest.webmanifest','./version.js','./config.js','./core.js','./access.js','./analysis.js','./operations.js','./market.js','./app.js','./version.json','./santander.png','./kutxabank.png','./icons/icon-192.png','./icons/icon-512.png'];
+const assetURLs=new Set(ASSETS.map(asset=>new URL(asset,self.location.href).href));
 self.addEventListener('install',e=>e.waitUntil((async()=>{
-  const c=await caches.open(CACHE);
-  for(const asset of ASSETS){
-    try{const r=await fetch(asset,{cache:'reload'});if(r.ok)await c.put(asset,r.clone());}catch{}
-  }
+  const responses=await Promise.all(ASSETS.map(async asset=>{
+    const response=await fetch(asset,{cache:'reload'});
+    if(!response.ok)throw new Error('No se pudo descargar '+asset);
+    return [asset,response];
+  }));
+  const release=responses.find(([asset])=>asset==='./version.json');
+  if((await release[1].clone().json()).appVersion!==self.MI_CARTERA_VERSION)throw new Error('La publicación todavía está incompleta');
+  const cache=await caches.open(CACHE);
+  await Promise.all(responses.map(([asset,response])=>cache.put(asset,response)));
   await self.skipWaiting();
 })()));
 self.addEventListener('activate',e=>e.waitUntil((async()=>{
@@ -18,17 +24,22 @@ self.addEventListener('message',e=>{if(e.data?.type==='SKIP_WAITING')self.skipWa
 self.addEventListener('fetch',e=>{
   if(e.request.method!=='GET')return;
   const url=new URL(e.request.url);
-  if(url.hostname.endsWith('.supabase.co'))return;
   if(url.origin!==self.location.origin)return;
   e.respondWith((async()=>{
-    try{
-      const r=await fetch(e.request,{cache:'no-store'});
-      if(r&&r.ok){const c=await caches.open(CACHE);await c.put(e.request,r.clone());}
-      return r;
-    }catch{
-      const cached=await caches.match(e.request);
+    const cache=await caches.open(CACHE);
+    // La consulta de versión con ?t= sigue llegando a la red.
+    if(assetURLs.has(url.href)){
+      const cached=await cache.match(e.request);
       if(cached)return cached;
-      if(e.request.mode==='navigate')return (await caches.match('./index.html'))||Response.error();
+    }
+    try{
+      const response=await fetch(e.request,{cache:'no-store'});
+      return response;
+    }catch{
+      const plain=new URL(url);plain.search='';
+      const cached=await cache.match(e.request)||await cache.match(plain.href);
+      if(cached)return cached;
+      if(e.request.mode==='navigate')return await cache.match('./index.html')||Response.error();
       return Response.error();
     }
   })());
