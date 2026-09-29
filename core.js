@@ -45,7 +45,7 @@ let navHistory={};
 let listingHistory={};
 let session=null;
 let cloudSnapshot=null;
-let state={positions:[],operations:[],calculationOperations:[],recurringRules:[],portfolios:[],activePortfolioId:null,funds:{},listings:{},fxRates:{EUR:{rate:1,date:null,source:'EUR'}},fxHistory:{EUR:[]},group:'entity',opFilter:'all',period:String(new Date().getFullYear()),analysisEntity:'all',analysisRange:'YTD',analysisMetric:'twr',analysisDrill:null,analysisComparisons:[],refreshReport:null,lastValue:null,lastNavUpdate:null,updatedAt:null};
+let state={positions:[],operations:[],calculationOperations:[],calculationIssues:[],recurringRules:[],portfolios:[],activePortfolioId:null,funds:{},listings:{},fxRates:{EUR:{rate:1,date:null,source:'EUR'}},fxHistory:{EUR:[]},group:'entity',opFilter:'all',period:String(new Date().getFullYear()),analysisEntity:'all',analysisRange:'YTD',analysisMetric:'twr',analysisDrill:null,analysisComparisons:[],refreshReport:null,lastValue:null,lastNavUpdate:null,updatedAt:null};
 
 function formatNumberES(value,minDecimals=2,maxDecimals=2){
  const n=Number(value);if(!Number.isFinite(n))return '—';
@@ -346,6 +346,7 @@ function expandRecurringRules(rules,navRows,listingPriceRows){
 }
 function mapRecurringRules(rules,accounts,stats){const accountMap=Object.fromEntries((accounts||[]).map(a=>[a.id,a]));return (rules||[]).map(r=>{const acc=accountMap[r.account_id],s=stats?.[r.id]||{};return{id:r.id,accountId:r.account_id,type:'Recurrente',operationType:'recurring',date:r.start_date,isin:r.isin,listingSymbol:r.listing_symbol||null,entity:CODE_TO_ENTITY[acc?.institution_code]||acc?.institution_code||'—',amount:+r.amount||0,dayOfMonth:+r.day_of_month||1,intervalMonths:+r.interval_months||1,startDate:r.start_date,endDate:r.end_date||null,active:r.active!==false,executedCount:+s.executed||0,pendingCount:+s.pending||0,pendingReason:s.pendingReason||null,lastDate:s.lastDate||null,nextDate:s.nextDate||null,status:s.pending>0?'pending':(r.active===false?'paused':'active')}}).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')))}
 function buildPositions(operations,accounts,funds,navRows,listingPriceRows=[]){
+ const calculationIssues=[];
  const accountMap=Object.fromEntries(accounts.map(a=>[a.id,a]));
  const fundMap=Object.fromEntries(funds.map(f=>[f.isin,f]));
  const byIsin={};for(const n of navRows){(byIsin[n.isin]??=[]).push({nav_date:n.nav_date,nav:+n.nav,currency:n.currency,source:n.source,fetched_at:n.fetched_at,isApproximate:false,proxySymbol:null,calibrationFactor:null,approximationMethod:null,calibrationDate:null})}for(const k of Object.keys(byIsin))byIsin[k]=normalizeSeries(byIsin[k]);
@@ -361,7 +362,7 @@ function buildPositions(operations,accounts,funds,navRows,listingPriceRows=[]){
   const referenceBase=parseReferenceBase(o.notes);if(referenceBase){g.referenceBases[referenceBase.year]=referenceBase.amount;g.historicalCostKnown=false}
   if(sanOperationKind(o.notes)==='opening'){g.sanOpeningValue=+o.amount||0;g.historicalCostKnown=false}
   const delta=+o.shares_delta||0,amount=Math.abs(+o.amount||0),opNav=+o.nav||0,fees=Math.max(0,+o.fees||0),expected=Math.abs(delta)*opNav;
-  const inputDiff=amount>0&&expected>0?Math.abs(amount/expected-1)*100:0;if(inputDiff>=VALIDATION_TOLERANCE_PCT)continue;
+  const inputDiff=amount>0&&expected>0?Math.abs(amount/expected-1)*100:0;if(inputDiff>=VALIDATION_TOLERANCE_PCT){calculationIssues.push({id:o.id||null,accountId:o.account_id,isin:o.isin,entity:g.entity,date,listingSymbol,differencePct:inputDiff});continue}
   if(delta>0){
    const acquisitionCost=(amount>0?amount:expected)+fees;g.costBasis+=acquisitionCost;g.shares+=delta;
   }else if(delta<0){
@@ -393,6 +394,7 @@ function buildPositions(operations,accounts,funds,navRows,listingPriceRows=[]){
   p.currentValue=posValue(p);p.unrealizedPnl=p.historicalCostKnown===false?null:p.currentValue-(+p.invested||0);p.totalReturn=p.historicalCostKnown===false?null:(p.invested>0?p.unrealizedPnl/p.invested*100:null);
   result.push(p);
  }
+ result.calculationIssues=calculationIssues;
  return result;
 }
 
@@ -423,6 +425,7 @@ function applyActivePortfolio(){
  const recurring=expandRecurringRules(recurringRules,cloudSnapshot.navs||[],cloudSnapshot.listingPrices||[]),calculationOps=[...ops,...recurring.operations];
  cloudAccounts=accounts;
  state.positions=buildPositions(calculationOps,accounts,cloudSnapshot.funds||[],cloudSnapshot.navs||[],cloudSnapshot.listingPrices||[]);
+ state.calculationIssues=state.positions.calculationIssues||[];
  state.recurringRules=recurringRules;state.calculationOperations=mapCalculationOperations(calculationOps,accounts);state.operations=[...mapOperations(ops,transfers,accounts),...mapRecurringRules(recurringRules,accounts,recurring.stats)].sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
  saveCache();renderAll();return true;
 }
