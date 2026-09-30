@@ -21,9 +21,11 @@ function viewerHistoricalSnapshot(universe,year){
 }
 function viewerPeriodResult(items,year,current,closingValue){
  if(!Number.isFinite(closingValue))return null;
- return portfolioPerformanceForPeriod(items,year);
+ if(current)return portfolioPerformanceForPeriod(items,year);
+ const endDate=`${year}-12-31`,values=portfolioRowsBetween(portfolioEvolutionSeries(items),`${year}-01-01`,endDate);
+ if(values.length&&values.at(-1).date!==endDate)values.push({date:endDate,value:closingValue});
+ return portfolioPerformance(items,values);
 }
-
 function viewerReturnLines(result){
  if(!result?.available||!Number.isFinite(result.pnl)||!Number.isFinite(result.twr))return'<span class="muted">No disponible</span>';
  return `<span class="${result.pnl>=0?'metric-positive':'metric-negative'}">${result.pnl>=0?'+':''}${eur(result.pnl)}</span><span class="${result.twr>=0?'metric-positive':'metric-negative'}">${pct(result.twr)}</span>`;
@@ -126,12 +128,11 @@ function analysisPriceAt(p,date){
 }
 function analysisReferenceAt(p,date){return Object.entries(p.referenceBases||{}).map(([year,amount])=>({year:Number(year),start:`${year}-01-01`,amount:+amount})).filter(x=>x.amount>0&&x.start<=date).sort((a,b)=>b.year-a.year)[0]||null}
 function analysisFallbackValueAt(p,date,shares){
- const ops=operationPrefixes(p).prices,index=lastIndexAt(ops,date,opEffectiveDate),op=ops[index];
- if(!op||dayDifference(date,opEffectiveDate(op))>MAX_HISTORICAL_PRICE_AGE_DAYS)return null;
- const currency=String(p.navCurrency||(p.listingSymbol?state.listings?.[p.listingSymbol]?.currency:null)||state.funds?.[p.isin]?.currency||'EUR').toUpperCase(),rate=fxRateAt(currency,date);return rate>0?shares*(+op.nav)*rate:null;
+ const ref=analysisReferenceAt(p,date),ops=positionOperations(p);if(ref){let value=ref.amount;for(const o of ops){const d=analysisOperationDate(o);if(!d||d<=ref.start||d>date||o.referenceBaseYear||o.sanKind==='reinvestment')continue;const amount=Math.abs(+o.amount||0),fees=Math.max(0,+o.fees||0),delta=+o.sharesDelta||0;if(delta>0)value+=amount+fees;else if(delta<0)value-=Math.max(0,amount-fees)}return Math.max(0,value)}
+ const op=[...ops].reverse().find(o=>{const d=analysisOperationDate(o);return d&&d<=date&&+o.nav>0});if(!op)return null;const currency=String(p.navCurrency||(p.listingSymbol?state.listings?.[p.listingSymbol]?.currency:null)||state.funds?.[p.isin]?.currency||'EUR').toUpperCase(),rate=fxRateAt(currency,date);return rate>0?shares*(+op.nav)*rate:null;
 }
 function analysisValueAt(p,date){
- const shares=analysisSharesAt(p,date);if(Math.abs(shares)<1e-10)return 0;const ref=analysisReferenceAt(p,date);if(ref&&date===ref.start)return ref.amount;let row=analysisPriceAt(p,date);if(ref&&row&&row.nav_date<ref.start)row=null;if(!row)return analysisFallbackValueAt(p,date,shares);if(dayDifference(date,row.nav_date)>MAX_HISTORICAL_PRICE_AGE_DAYS)return null;const currency=String(row.currency||p.navCurrency||(p.listingSymbol?state.listings?.[p.listingSymbol]?.currency:null)||state.funds?.[p.isin]?.currency||'EUR').toUpperCase(),rate=fxRateAt(currency,date);return rate>0?shares*(+row.nav)*rate:null;
+ const shares=analysisSharesAt(p,date);if(Math.abs(shares)<1e-10)return 0;const ref=analysisReferenceAt(p,date);if(ref&&date===ref.start)return ref.amount;let row=analysisPriceAt(p,date);if(ref&&row&&row.nav_date<ref.start)row=null;if(!row)return analysisFallbackValueAt(p,date,shares);const currency=String(row.currency||p.navCurrency||(p.listingSymbol?state.listings?.[p.listingSymbol]?.currency:null)||state.funds?.[p.isin]?.currency||'EUR').toUpperCase(),rate=fxRateAt(currency,date);return rate>0?shares*(+row.nav)*rate:null;
 }
 function portfolioEvolutionSeries(items){return memoCalculation('evolution',calculationScopeKey(items),()=>{
  const dates=new Set();for(const p of items){for(const r of positionSeries(p))dates.add(r.nav_date);for(const o of positionOperations(p)){const d=analysisOperationDate(o);if(d)dates.add(d)}for(const year of Object.keys(p.referenceBases||{}))dates.add(`${year}-01-01`)}
@@ -166,39 +167,20 @@ function twrReturnSeries(items,valueRows){
 }
 function xnpv(rate,flows){if(!(rate>-1)||!flows.length)return NaN;const t0=new Date(flows[0].date+'T00:00:00Z').getTime();return flows.reduce((sum,f)=>sum+f.amount/Math.pow(1+rate,(new Date(f.date+'T00:00:00Z').getTime()-t0)/31557600000),0)}
 function xirrPercent(flows){const merged=new Map();for(const f of flows)merged.set(f.date,(merged.get(f.date)||0)+f.amount);const rows=[...merged].map(([date,amount])=>({date,amount})).filter(f=>Math.abs(f.amount)>1e-8).sort((a,b)=>a.date.localeCompare(b.date));if(rows.length<2||!rows.some(f=>f.amount<0)||!rows.some(f=>f.amount>0))return null;const t0=new Date(rows[0].date+'T00:00:00Z').getTime(),years=rows.map(row=>(new Date(row.date+'T00:00:00Z').getTime()-t0)/31557600000),npv=rate=>rows.reduce((sum,row,index)=>sum+row.amount/Math.pow(1+rate,years[index]),0);let previousRate=-.9999,previousValue=npv(previousRate);for(let i=1;i<=800;i++){const x=Math.log(.0001)+(Math.log(1001)-Math.log(.0001))*i/800,rate=Math.exp(x)-1,value=npv(rate);if(Number.isFinite(value)&&Number.isFinite(previousValue)&&(value===0||value*previousValue<0)){let low=previousRate,high=rate,lowValue=previousValue;for(let j=0;j<120;j++){const mid=(low+high)/2,midValue=npv(mid);if(Math.abs(midValue)<1e-7)return mid*100;if(lowValue*midValue<=0)high=mid;else{low=mid;lowValue=midValue}}return((low+high)/2)*100}previousRate=rate;previousValue=value}return null}
+
 function portfolioPerformance(items,valueRows){const firstPositive=valueRows.findIndex(r=>+r.value>1e-10);if(firstPositive>0)valueRows=valueRows.slice(firstPositive);if(!valueRows.length||firstPositive<0)return{available:false,items,valueRows:[],events:[],movementEvents:[],opening:0,closing:0,purchases:0,sales:0,capital:0,pnl:0,simple:null,twr:null,xirr:null,twrRows:[],simpleRows:[]};const startDate=valueRows[0].date,endDate=valueRows.at(-1).date,opening=+valueRows[0].value||0,closing=+valueRows.at(-1).value||0,periodEvents=analysisFlowEvents(items).filter(e=>e.date>=startDate&&e.date<=endDate),events=periodEvents.filter(e=>e.date>startDate),movementEvents=periodEvents.map(e=>({...e,opening:e.date===startDate})),purchases=events.reduce((a,e)=>a+e.purchases,0),sales=events.reduce((a,e)=>a+e.sales,0),capital=opening+purchases,pnl=closing+sales-opening-purchases,simple=capital>0?pnl/capital*100:null,twrRows=twrReturnSeries(items,valueRows),twr=twrRows.length?twrRows.at(-1).value:null,xirrFlows=[{date:startDate,amount:-opening},...events.map(e=>({date:e.date,amount:e.sales-e.purchases})),{date:endDate,amount:closing}],xirr=xirrPercent(xirrFlows);return{available:valueRows.length>1,items,valueRows,events,movementEvents,startDate,endDate,opening,closing,purchases,sales,capital,pnl,simple,twr,xirr,twrRows,simpleRows:simpleReturnSeries(items,valueRows)}}
-function performanceWithCoverage(items,rows,startDate,endDate){
- const selected=portfolioRowsBetween(rows,startDate,endDate),closingDate=endDate&&endDate<todayISO()?endDate:todayISO();
- let boundaryMissing=false;
- for(const date of [startDate,closingDate].filter(Boolean)){
-  if(!items.length)continue;
-  const values=items.map(p=>analysisValueAt(p,date));
-  if(values.some(value=>!Number.isFinite(value))){boundaryMissing=true;continue}
-  const value=values.reduce((sum,n)=>sum+n,0),index=selected.findIndex(row=>row.date===date);
-  if(index>=0)selected[index]={date,value};else selected.push({date,value});
- }
- selected.sort((a,b)=>a.date.localeCompare(b.date));
- const performance=portfolioPerformance(items,selected);
- const invalid=items.some(p=>(state.calculationIssues||[]).some(issue=>issue.accountId===p.accountId&&issue.isin===p.isin));
- const missing=invalid||boundaryMissing||(rows.missingDates||[]).some(date=>(!startDate||date>=startDate)&&(!endDate||date<=endDate));
- if(missing){performance.available=false;performance.coverageIssue='missing_valuation';performance.twr=null;performance.simple=null;performance.xirr=null}
- return performance;
-}
-function portfolioPerformanceForRange(items,range){return memoCalculation('range',range+'|'+calculationScopeKey(items),()=>{
- const rows=portfolioEvolutionSeries(items),selected=portfolioRowsForRange(rows,range),performance=portfolioPerformance(items,selected),start=selected[0]?.date,end=[rows.at(-1)?.date,(rows.missingDates||[]).at(-1)].filter(Boolean).sort().at(-1);
- if(items.some(p=>(state.calculationIssues||[]).some(issue=>issue.accountId===p.accountId&&issue.isin===p.isin))||(rows.missingDates||[]).some(date=>(!start||date>=start)&&(!end||date<=end))||items.some(p=>Math.abs(analysisSharesAt(p,todayISO()))>1e-10&&!Number.isFinite(analysisValueAt(p,todayISO())))){performance.available=false;performance.coverageIssue='missing_valuation';performance.twr=null;performance.simple=null;performance.xirr=null}
- return performance;
-})}
-function portfolioPerformanceForPeriod(items,period=state.period){return memoCalculation('period',String(period)+'|'+calculationScopeKey(items),()=>{
- const rows=portfolioEvolutionSeries(items);if(period==='total')return performanceWithCoverage(items,rows,null,todayISO());const year=Number(period);if(!Number.isInteger(year))return performanceWithCoverage(items,rows,null,todayISO());return performanceWithCoverage(items,rows,`${year}-01-01`,`${year}-12-31`);
-})}
+
+function portfolioPerformanceForRange(items,range){return memoCalculation('range',range+'|'+calculationScopeKey(items),()=>{return portfolioPerformance(items,portfolioRowsForRange(portfolioEvolutionSeries(items),range))})}
+
+function portfolioPerformanceForPeriod(items,period=state.period){return memoCalculation('period',String(period)+'|'+calculationScopeKey(items),()=>{const rows=portfolioEvolutionSeries(items);if(period==='total')return portfolioPerformance(items,rows);const year=Number(period);if(!Number.isInteger(year))return portfolioPerformance(items,rows);return portfolioPerformance(items,portfolioRowsBetween(rows,`${year}-01-01`,`${year}-12-31`))})}
+
 function performanceValueText(value){return Number.isFinite(value)?pct(value):'N/D'}
 function eventLabel(e){return e.referenceBase?'Base de apertura':e.kind==='withdrawal'?'Retirada/venta':e.kind==='transfer_in'?'Traspaso recibido':e.kind==='transfer_out'?'Traspaso enviado':'Aportación/compra'}
 function performanceNetFlows(performance){return performance.purchases-performance.sales}
 function performancePatrimonialDifference(performance){return performance.closing-performance.opening}
 function performanceConsistencyDifference(performance){return performance.closing-(performance.opening+performance.purchases-performance.sales+performance.pnl)}
 function renderPerformanceSummary(performance,range){
- const label=document.getElementById('performancePeriodLabel'),kpis=document.getElementById('performanceKpis'),audit=document.getElementById('performanceAudit');if(!label||!kpis||!audit)return;label.textContent=analysisRangeLabel(range);if(!performance.available){kpis.innerHTML=performance.coverageIssue?'<div class="notice">No disponible: faltan precios válidos para alguna fecha del periodo.</div>':'<div class="notice">Sin histórico suficiente.</div>';audit.innerHTML=performance.coverageIssue?'No se utiliza un precio con más de 14 días de antigüedad para completar una valoración histórica.':'No hay dos valoraciones válidas para auditar este periodo.';return}
+ const label=document.getElementById('performancePeriodLabel'),kpis=document.getElementById('performanceKpis'),audit=document.getElementById('performanceAudit');if(!label||!kpis||!audit)return;label.textContent=analysisRangeLabel(range);if(!performance.available){kpis.innerHTML='<div class="notice">Sin histórico suficiente.</div>';audit.innerHTML='No hay dos valoraciones válidas para auditar este periodo.';return}
  const cls=n=>!Number.isFinite(n)?'':n>=0?'metric-positive':'metric-negative',patrimonial=performancePatrimonialDifference(performance),netFlows=performanceNetFlows(performance),consistency=performanceConsistencyDifference(performance),consistent=Math.abs(consistency)<.01;
  kpis.innerHTML=`<div class="analytics-kpi"><span>Resultado de la inversión</span><strong class="${cls(performance.pnl)}">${performance.pnl>=0?'+':''}${eur(performance.pnl)}</strong><small>Excluye aportaciones y retiradas.</small></div><div class="analytics-kpi"><span>Variación del patrimonio</span><strong class="${cls(patrimonial)}">${patrimonial>=0?'+':''}${eur(patrimonial)}</strong><small>Incluye aportaciones y retiradas.</small></div><div class="analytics-kpi"><span>TWR acumulada</span><strong class="${cls(performance.twr)}">${performanceValueText(performance.twr)}</strong><small>Rendimiento sin el efecto de los flujos.</small></div><div class="analytics-kpi"><span>XIRR anualizada</span><strong class="${cls(performance.xirr)}">${performanceValueText(performance.xirr)}</strong><small>Tasa anualizada; no es una previsión.</small></div>`;
  const ops=performance.events.length?performance.events.map(e=>`<div class="audit-op"><span>${esc(e.date)}</span><span>${esc(eventLabel(e))} · ${esc(e.name||e.isin||'')}</span><strong>${e.purchases?'+ '+eur(e.purchases):'− '+eur(e.sales)}</strong></div>`).join(''):'<div class="muted" style="padding-top:8px">Sin aportaciones ni retiradas posteriores al valor inicial.</div>';

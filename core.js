@@ -168,7 +168,15 @@ function positionOperations(p){
 }
 function operationPrefixes(p){
  const rows=positionOperations(p);let cached=operationPrefixMemo.get(rows);
- if(!cached){let shares=0;const quantities=[],prices=[];for(const row of rows){const date=opEffectiveDate(row);if(!date)continue;shares+=(+row.sharesDelta||0);quantities.push({date,shares});if(+row.nav>0)prices.push(row)}cached={quantities,prices};operationPrefixMemo.set(rows,cached)}
+ if(!cached){
+  let shares=0;const quantities=[];
+  // Una posición con base anual existe desde el 1 de enero, aunque se dé de alta después.
+  // Su precio de operación conserva la fecha real: no se retrocede una cotización de septiembre.
+  const holdings=rows.map((row,index)=>({row,index,date:row.referenceBaseYear?`${row.referenceBaseYear}-01-01`:opEffectiveDate(row)})).filter(item=>item.date).sort((a,b)=>a.date.localeCompare(b.date)||a.index-b.index);
+  for(const {row,date} of holdings){shares+=(+row.sharesDelta||0);quantities.push({date,shares})}
+  const prices=rows.filter(row=>opEffectiveDate(row)&&+row.nav>0);
+  cached={quantities,prices};operationPrefixMemo.set(rows,cached);
+ }
  return cached;
 }
 function firstRowOnOrAfter(series,date,maxGapDays=14){const target=new Date(date+'T00:00:00Z').getTime();for(const r of series){if(r.nav_date<date)continue;const gap=(new Date(r.nav_date+'T00:00:00Z').getTime()-target)/86400000;if(gap<=maxGapDays)return r;break}return null}
