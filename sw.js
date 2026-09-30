@@ -1,5 +1,5 @@
 importScripts('./version.js');
-// v0.15.1: cálculos anteriores restaurados; instalación completa de la versión.
+// v0.15.2: opción 5D en el gráfico de cada posición.
 const CACHE='mi-cartera-v'+self.MI_CARTERA_VERSION;
 const ASSETS=['./','./index.html','./manifest.webmanifest','./version.js','./config.js','./core.js','./access.js','./analysis.js','./operations.js','./market.js','./app.js','./version.json','./santander.png','./kutxabank.png','./icons/icon-192.png','./icons/icon-512.png'];
 const assetURLs=new Set(ASSETS.map(asset=>new URL(asset,self.location.href).href));
