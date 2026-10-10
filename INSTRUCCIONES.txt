@@ -1,0 +1,12 @@
+MI CARTERA 0.15.4 — ACTUALIZACIÓN MANUAL
+
+Al abrir la app se carga y sincroniza la cartera guardada, sin solicitar nuevas cotizaciones a los proveedores. Se mantienen Actualizar cartera y Reintentar.
+
+INSTALACIÓN
+1. Descomprime el ZIP.
+2. En GitHub abre jrm0n/mi-cartera, en la raíz.
+3. Add file > Upload files: sube app.js, market.js, core.js, version.js, version.json, index.html y sw.js, sustituyendo los existentes. Sube archivos sueltos, no el ZIP.
+4. Commit changes y espera al despliegue de GitHub Pages.
+5. Cierra y abre la app: debe mostrar 0.15.4. Abrirla no debe iniciar el progreso de actualización. Pulsa Actualizar cartera cuando quieras renovar los precios.
+
+No requiere cambios en Supabase. Esta modificación elimina la actualización al abrir la app; no desactiva tareas programadas independientes que puedan existir en el servidor. Se mantienen la corrección anterior y las fórmulas financieras.

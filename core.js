@@ -13,7 +13,6 @@ function renderVersionLabels(){
 }
 
 const THEME_KEY='mi_cartera_theme';
-const AUTO_REFRESH_KEY='mi_cartera_last_auto_refresh_v2';
 const cfg=window.MI_CARTERA_CONFIG?.cloud||{};
 const SUPABASE_URL=(cfg.url||'').replace(/\/$/,'');
 const SUPABASE_KEY=cfg.publishableKey||cfg.anonKey||'';

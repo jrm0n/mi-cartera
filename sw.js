@@ -1,5 +1,5 @@
 importScripts('./version.js');
-// v0.15.3: actualización reciente y detección de errores de cotización.
+// v0.15.4: cotizaciones mediante actualización manual al abrir la app.
 const CACHE='mi-cartera-v'+self.MI_CARTERA_VERSION;
 const ASSETS=['./','./index.html','./manifest.webmanifest','./version.js','./config.js','./core.js','./access.js','./analysis.js','./operations.js','./market.js','./app.js','./version.json','./santander.png','./kutxabank.png','./icons/icon-192.png','./icons/icon-512.png'];
 const assetURLs=new Set(ASSETS.map(asset=>new URL(asset,self.location.href).href));

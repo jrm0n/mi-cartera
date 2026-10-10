@@ -20,7 +20,7 @@ async function syncViewerData(){
 async function init(){
  if(!SUPABASE_URL||!SUPABASE_KEY){showAuth();setAuthMessage('Configuración de Supabase incompleta.',true);return}
  if(await acceptInvitation())return;
- const ok=await ensureSession();if(!ok){showAuth();return}await loadCache();if(state.portfolios.length)updateAccessMode();state.lastValue=null;renderAll();showApp();if(await syncFromCloud()&&!state.readonly)await refreshOnStartup(true);
+ const ok=await ensureSession();if(!ok){showAuth();return}await loadCache();if(state.portfolios.length)updateAccessMode();state.lastValue=null;renderAll();showApp();await syncFromCloud();
 }
 
 async function acceptInvitation(){
