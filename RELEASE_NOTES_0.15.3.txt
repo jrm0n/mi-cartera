@@ -1,0 +1,29 @@
+MI CARTERA 0.15.3 — PARCHE DE ACTUALIZACIÓN
+
+INSTALACIÓN
+1. Descomprime este ZIP.
+2. En GitHub, abre jrm0n/mi-cartera y entra en la raíz del repositorio.
+3. Usa Add file > Upload files (en móvil puede aparecer en el menú de tres puntos junto a Code).
+4. Sube estos cinco archivos a la raíz, sustituyendo los existentes:
+   market.js, index.html, version.js, version.json y sw.js.
+   Sube los archivos sueltos, no el ZIP ni una carpeta que los contenga.
+5. Confirma la subida con Commit changes y espera al despliegue de GitHub Pages.
+6. Cierra y vuelve a abrir la aplicación. Comprueba que indica v0.15.3.
+7. Pulsa Actualizar cartera y revisa Análisis > Calidad de los datos > Última actualización global.
+
+No requiere SQL nuevo ni actualizar funciones en Supabase. No borres los datos del navegador.
+
+CAMBIOS
+- Con cotizaciones recientes se solicitan los últimos días, en lugar de volver a pedir el histórico completo.
+- Si la última cotización falta o tiene más de nueve días, se solicita el histórico para recuperar el hueco.
+- Si el servidor comunica un fallo al renovar el precio, se marca Error aunque conserve un precio antiguo de menos de cinco días.
+- Los reintentos conservan la fecha previa del instrumento, para evitar repetir innecesariamente la descarga completa.
+- Cuando el servidor devuelve un error con estado HTTP y detalle, se muestran ambos, ocultando enlaces y credenciales.
+- Se mantienen las fórmulas de valoración y la opción 5D.
+
+VALIDACIÓN Y LÍMITES
+Diez pruebas de actualización pasan. Incluyen descarga reciente, recuperación de huecos, fallo con precio guardado, precios inválidos, fechas atrasadas, fuente alternativa, reintentos y ocultación de credenciales.
+La suite de cálculos preexistente da el mismo resultado antes y después: seis pruebas pasan y dos fallan. Los dos fallos ya estaban en el ZIP recibido (expectativa de versión desactualizada y un elemento DOM ausente en el simulador de pruebas).
+No se ha consultado EODHD con las credenciales de la cuenta ni se ha publicado este parche.
+La captura demuestra el fallo de histórico, pero no revela su respuesta HTTP. La corrección evita las solicitudes completas innecesarias; no garantiza que el proveedor vuelva a responder si existe un problema de acceso, cuota o símbolo.
+Si persiste el fallo, conserva la captura del nuevo informe para continuar el diagnóstico.
