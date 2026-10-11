@@ -32,7 +32,7 @@ async function refreshOneTarget(target){
   const stale=result?.quote_status?.stale===true,status=!validQuote||quoteRefreshFailed?'failed':stale?'stale':'updated';
   const diagnostics=result?.diagnostics||[];
   const error=quoteRefreshFailed?`No se pudo renovar la cotización.${validQuote?` Se conserva el precio del ${quote.date}.`:''}`:!validQuote?'No se obtuvo un VL/precio válido.':null;
-  return{...target,status,source:quote?.source||result?.sources?.identity_nav||null,quoteDate:quote?.date||null,quoteValue:validQuote?+quote.nav:null,currency:quote?.currency||null,historyReason:result?.history?.reason||null,historyRows:+result?.history?.rows_inserted||0,diagnostics,error,errorCode:quoteRefreshFailed?'QUOTE_REFRESH_FAILED':null,startedAt,finishedAt:new Date().toISOString()};
+  return{...target,name:result?.fund?.name||target.name,status,source:quote?.source||result?.sources?.identity_nav||null,quoteDate:quote?.date||null,quoteValue:validQuote?+quote.nav:null,currency:quote?.currency||null,historyReason:result?.history?.reason||null,historyRows:+result?.history?.rows_inserted||0,diagnostics,error,errorCode:quoteRefreshFailed?'QUOTE_REFRESH_FAILED':null,startedAt,finishedAt:new Date().toISOString()};
  }catch(err){
   const diagnostics=[...(err?.payload?.diagnostics||[])];
   const providerStatus=err?.payload?.status;
