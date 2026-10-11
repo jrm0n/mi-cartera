@@ -1,3 +1,34 @@
+// La cuota se consulta manualmente o al terminar una actualización manual de precios.
+let eodQuotaSnapshot=null,quotaLoading=false,quotaError='';
+function quotaCardHtml(){
+ if(state.readonly)return '';
+ const quota=eodQuotaSnapshot?.userId===session?.user?.id?eodQuotaSnapshot:null;
+ let detail='Pulsa «Consultar cuota» para ver el consumo de tu cuenta.';
+ let status='muted';
+ if(quota){
+  const expired=Date.now()>=Date.parse(quota.reset_at);
+  const old=Date.now()-Date.parse(quota.checked_at)>10*60000;
+  status=expired||old?'pending':quota.remaining===0?'metric-negative':quota.remaining<=2?'pending':'metric-positive';
+  const checked=new Date(quota.checked_at).toLocaleString('es-ES',{timeZone:'Europe/Madrid'});
+  const reset=new Date(quota.reset_at).toLocaleString('es-ES',{timeZone:'Europe/Madrid',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+  detail=`Usadas: <strong>${quota.used} de ${quota.limit}</strong> · Disponibles: <strong>${quota.remaining}</strong>${quota.extra?` · Extras: ${quota.extra}`:''}<br>Reinicio: ${esc(reset)} · hora peninsular<br><span class="muted">Consultada: ${esc(checked)}${expired?' · El periodo ha terminado; consulta de nuevo.':old?' · Lectura anterior; consulta para comprobar el consumo actual.':''}</span>`;
+ }
+ return `<div class="quality-row" id="eodQuotaCard"><strong>Cuota EODHD</strong><div class="${status}" style="margin:8px 0;line-height:1.5">${detail}</div>${quotaError?`<div class="metric-negative" role="status">${esc(quotaError)}</div>`:''}<button class="btn small" type="button" onclick="refreshEodQuota()" ${quotaLoading?'disabled':''}>${quotaLoading?'Consultando…':'Consultar cuota'}</button></div>`;
+}
+function renderEodQuotaCard(){const el=document.getElementById('eodQuotaCard');if(el)el.outerHTML=quotaCardHtml();}
+async function refreshEodQuota(){
+ if(quotaLoading||state.readonly||!session?.user?.id)return;
+ const userId=session.user.id,epoch=sessionEpoch;quotaLoading=true;quotaError='';renderEodQuotaCard();
+ try{
+  const result=await edge('resolve-fund',{action:'quota'}),q=result?.quota;
+  if(session?.user?.id!==userId||sessionEpoch!==epoch)return;
+  if(!q||![q.used,q.limit,q.extra,q.remaining].every(x=>Number.isFinite(x)&&x>=0)||q.limit<=0||!Number.isFinite(Date.parse(q.checked_at))||!Number.isFinite(Date.parse(q.reset_at)))throw new Error('El servicio no devolvió una cuota válida.');
+  eodQuotaSnapshot={...q,userId};
+ }catch(error){if(session?.user?.id===userId&&sessionEpoch===epoch)quotaError='No se pudo consultar la cuota. '+refreshSafeDetail(error.message);}
+ finally{quotaLoading=false;renderEodQuotaCard();}
+}
+window.refreshEodQuota=refreshEodQuota;
+
 function setRefreshProgress(running,message,current=0,totalCount=0,kind='ok'){
  const box=document.getElementById('refreshProgress'),text=document.getElementById('refreshProgressText'),fill=document.getElementById('refreshProgressFill'),button=document.getElementById('refreshBtn');if(!box||!text||!fill||!button)return;
  box.hidden=false;text.textContent=message;const percent=totalCount>0?Math.min(100,Math.max(0,current/totalCount*100)):(running?8:100);fill.style.width=`${percent}%`;fill.style.background=kind==='error'?'var(--bad)':kind==='warn'?'var(--warn)':'var(--good)';button.disabled=running;button.textContent=running?`↻ Actualizando${totalCount?` ${current}/${totalCount}`:'…'}`:'↻ Actualizar cartera';button.setAttribute('aria-busy',running?'true':'false');
@@ -10,7 +41,7 @@ function refreshTargets(){
  const map=new Map();for(const p of allPortfolioMarketPositions()){const key=refreshTargetKey(p),current=map.get(key);if(current){if(p.portfolioName&&!current.portfolios.includes(p.portfolioName))current.portfolios.push(p.portfolioName);continue}map.set(key,{key,isin:p.isin,listingSymbol:p.listingSymbol||null,name:meta(p).name||p.isin,navDate:p.navDate||null,portfolios:p.portfolioName?[p.portfolioName]:[]})}return[...map.values()].sort((a,b)=>String(a.navDate||'').localeCompare(String(b.navDate||''))||a.name.localeCompare(b.name,'es'));
 }
 function refreshErrorText(err){
- const code=String(err?.code||err?.payload?.error||err?.message||'ERROR_DESCONOCIDO').toUpperCase(),known={INSTRUMENT_NOT_FOUND:'El ISIN no aparece en ninguna fuente disponible.',EODHD_SEARCH_FAILED:'EODHD no respondió al buscar el ISIN.',EODHD_SEARCH_UNAVAILABLE:'No se pudo conectar con EODHD.',EODHD_HISTORY_FAILED:'EODHD no devolvió el histórico solicitado.',TRADEGATE_QUOTE_UNAVAILABLE:'Tradegate no devolvió una cotización válida.',LISTING_NOT_FOUND:'La bolsa seleccionada ya no está disponible.',SERVER_CONFIGURATION_INCOMPLETE:'Falta configurar alguna credencial del servicio de actualización.',INVALID_SESSION:'La sesión de Supabase ha caducado.'};return known[code]||String(err?.message||'Error de actualización');
+ const code=String(err?.code||err?.payload?.error||err?.message||'ERROR_DESCONOCIDO').toUpperCase(),known={INSTRUMENT_NOT_FOUND:'El ISIN no aparece en ninguna fuente disponible.',EODHD_SEARCH_FAILED:'EODHD no respondió al buscar el ISIN.',EODHD_SEARCH_UNAVAILABLE:'No se pudo conectar con EODHD.',EODHD_HISTORY_FAILED:'EODHD no devolvió el histórico solicitado.',TRADEGATE_QUOTE_UNAVAILABLE:'Tradegate no devolvió una cotización válida.',LISTING_NOT_FOUND:'La bolsa seleccionada ya no está disponible.',SERVER_CONFIGURATION_INCOMPLETE:'Falta configurar alguna credencial del servicio de actualización.',PORTFOLIO_OWNER_REQUIRED:'Solo el propietario de una cartera puede actualizar cotizaciones.',INVALID_SESSION:'La sesión de Supabase ha caducado.'};return known[code]||String(err?.message||'Error de actualización');
 }
 function refreshNeedsFullHistory(target){
  // El servidor descarga diez días en un refresco reciente. Recuperar el histórico
@@ -46,12 +77,12 @@ async function runRefreshTargets(targets){
  const epoch=sessionEpoch,rows=new Array(targets.length);let cursor=0,completed=0;const workers=Math.min(3,Math.max(1,targets.length));async function worker(){while(true){const index=cursor++;if(index>=targets.length)return;if(sessionEpoch!==epoch)throw new Error('La sesión cambió durante la actualización');const target=targets[index];setRefreshProgress(true,`Actualizando ${completed+1} de ${targets.length}: ${target.name}`,completed,targets.length);rows[index]=await refreshOneTarget(target);completed++;const errors=rows.filter(Boolean).filter(x=>x.status==='failed').length;setCloudStatus(`Actualizando todos los perfiles… ${completed}/${targets.length}`);setRefreshProgress(true,`Procesados ${completed} de ${targets.length}`,completed,targets.length,errors?'warn':'ok')}}await Promise.all(Array.from({length:workers},()=>worker()));return rows;
 }
 function refreshReportSummary(rows){return{updated:rows.filter(x=>x.status==='updated').length,stale:rows.filter(x=>x.status==='stale').length,failed:rows.filter(x=>x.status==='failed').length}}
-async function refreshAllMarketData(showNotice=true,options={}){
+async function performAllMarketDataRefresh(showNotice=true,options={}){
  setRefreshProgress(true,'Cargando los fondos de todos los perfiles…',0,0);if((!options.reuseSnapshot||!cloudSnapshot)&&!await syncFromCloud(false))throw new Error('No se pudo sincronizar antes de actualizar; inténtalo de nuevo.');const targets=refreshTargets();setCloudStatus(`Actualizando todos los perfiles… 0/${targets.length}`);setRefreshProgress(true,targets.length?'Preparando todos los perfiles…':'No hay posiciones que actualizar',0,targets.length);if(!targets.length){setRefreshProgress(false,'No hay posiciones que actualizar.',0,0);return{updated:0,stale:0,failed:0,rows:[]}}
- const rows=await runRefreshTargets(targets);if(!await syncFromCloud(false,{priceChanges:true}))throw new Error('Se consultaron los precios, pero no se pudo sincronizar la cartera; inténtalo de nuevo.');const summary=refreshReportSummary(rows);state.refreshReport={startedAt:rows[0]?.startedAt||new Date().toISOString(),finishedAt:new Date().toISOString(),...summary,rows};saveCache();const parts=[`${summary.updated} actualizados`];if(summary.stale)parts.push(`${summary.stale} atrasados`);if(summary.failed)parts.push(`${summary.failed} con error`);const resultText=`Todos los perfiles procesados: ${parts.join(', ')}.`;setRefreshProgress(false,resultText,targets.length,targets.length,summary.failed?'error':summary.stale?'warn':'ok');setCloudStatus(`Sincronizado con Supabase · ${resultText}`,summary.failed?'error':summary.stale?'warn':'');renderAll();if(showNotice)alert(resultText);return{...summary,rows}
+ const rows=await runRefreshTargets(targets);await refreshEodQuota();if(!await syncFromCloud(false,{priceChanges:true}))throw new Error('Se consultaron los precios, pero no se pudo sincronizar la cartera; inténtalo de nuevo.');const summary=refreshReportSummary(rows);state.refreshReport={startedAt:rows[0]?.startedAt||new Date().toISOString(),finishedAt:new Date().toISOString(),...summary,rows};saveCache();const parts=[`${summary.updated} actualizados`];if(summary.stale)parts.push(`${summary.stale} atrasados`);if(summary.failed)parts.push(`${summary.failed} con error`);const resultText=`Todos los perfiles procesados: ${parts.join(', ')}.`;setRefreshProgress(false,resultText,targets.length,targets.length,summary.failed?'error':summary.stale?'warn':'ok');setCloudStatus(`Sincronizado con Supabase · ${resultText}`,summary.failed?'error':summary.stale?'warn':'');renderAll();if(showNotice)alert(resultText);return{...summary,rows}
 }
-async function retryRefreshKeys(keys){
- const wanted=new Set(keys),old=state.refreshReport?.rows||[],targets=old.filter(x=>wanted.has(x.key)).map(x=>({key:x.key,isin:x.isin,listingSymbol:x.listingSymbol||null,name:x.name||x.isin,navDate:x.quoteDate||x.navDate||null,portfolios:x.portfolios||[]}));if(!targets.length)return;setRefreshProgress(true,'Reintentando instrumentos fallidos…',0,targets.length);try{const retried=await runRefreshTargets(targets);if(!await syncFromCloud(false,{priceChanges:true}))throw new Error('No se pudo sincronizar la cartera después del reintento.');const byKey=new Map(retried.map(x=>[x.key,x])),rows=old.map(x=>byKey.get(x.key)||x),summary=refreshReportSummary(rows);state.refreshReport={startedAt:state.refreshReport?.startedAt||new Date().toISOString(),finishedAt:new Date().toISOString(),...summary,rows};saveCache();const text=`Reintento completado: ${retried.filter(x=>x.status==='updated').length} actualizados, ${retried.filter(x=>x.status==='stale').length} atrasados y ${retried.filter(x=>x.status==='failed').length} con error.`;setRefreshProgress(false,text,targets.length,targets.length,retried.some(x=>x.status==='failed')?'error':retried.some(x=>x.status==='stale')?'warn':'ok');renderAll();alert(text)}catch(err){setRefreshProgress(false,'No se pudo completar el reintento.',0,targets.length,'error');alert('No se pudo completar el reintento: '+err.message)}
+async function performRefreshRetry(keys){
+ const wanted=new Set(keys),old=state.refreshReport?.rows||[],targets=old.filter(x=>wanted.has(x.key)).map(x=>({key:x.key,isin:x.isin,listingSymbol:x.listingSymbol||null,name:x.name||x.isin,navDate:x.quoteDate||x.navDate||null,portfolios:x.portfolios||[]}));if(!targets.length)return;setRefreshProgress(true,'Reintentando instrumentos fallidos…',0,targets.length);try{const retried=await runRefreshTargets(targets);await refreshEodQuota();if(!await syncFromCloud(false,{priceChanges:true}))throw new Error('No se pudo sincronizar la cartera después del reintento.');const byKey=new Map(retried.map(x=>[x.key,x])),rows=old.map(x=>byKey.get(x.key)||x),summary=refreshReportSummary(rows);state.refreshReport={startedAt:state.refreshReport?.startedAt||new Date().toISOString(),finishedAt:new Date().toISOString(),...summary,rows};saveCache();const text=`Reintento completado: ${retried.filter(x=>x.status==='updated').length} actualizados, ${retried.filter(x=>x.status==='stale').length} atrasados y ${retried.filter(x=>x.status==='failed').length} con error.`;setRefreshProgress(false,text,targets.length,targets.length,retried.some(x=>x.status==='failed')?'error':retried.some(x=>x.status==='stale')?'warn':'ok');renderAll();alert(text)}catch(err){setRefreshProgress(false,'No se pudo completar el reintento.',0,targets.length,'error');alert('No se pudo completar el reintento: '+err.message)}
 }
 window.retryRefreshTarget=key=>retryRefreshKeys([key]);window.retryFailedRefreshes=()=>retryRefreshKeys((state.refreshReport?.rows||[]).filter(x=>x.status==='failed').map(x=>x.key));
 async function refreshPortfolio(){const button=document.getElementById('refreshBtn');if(button?.disabled)return;state.lastValue=total();saveCache();try{await refreshAllMarketData(true)}catch(err){console.error(err);setRefreshProgress(false,'No se pudo completar la actualización.',0,1,'error');alert('No se pudo actualizar la cartera: '+err.message)}}
@@ -157,3 +188,14 @@ async function restoreBackupFile(input){
  }catch(err){backupStatus('No se pudo restaurar: '+restoreErrorMessage(err),true)}
  finally{input.value='';if(button)button.disabled=false}
 }
+
+// Las llamadas simultáneas comparten el proceso activo de este navegador.
+let marketRefreshPromise=null;
+function exclusiveMarketRefresh(action){
+ if(marketRefreshPromise)return marketRefreshPromise;
+ const pending=Promise.resolve().then(action);marketRefreshPromise=pending;
+ pending.finally(()=>{if(marketRefreshPromise===pending)marketRefreshPromise=null}).catch(()=>{});
+ return pending;
+}
+function refreshAllMarketData(showNotice=true,options={}){return exclusiveMarketRefresh(()=>performAllMarketDataRefresh(showNotice,options));}
+function retryRefreshKeys(keys){return exclusiveMarketRefresh(()=>performRefreshRetry(keys));}

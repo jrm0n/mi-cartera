@@ -352,7 +352,7 @@ async function edge(name,body,retry=true){
  if(res.status===401&&retry){await refreshSession();return edge(name,body,false)}
  const text=await res.text();if(session?.user?.id!==requestUser||sessionEpoch!==requestEpoch)throw new Error('La sesión cambió durante la solicitud');let data=null;try{data=text?JSON.parse(text):null}catch{data=text}
  if(!res.ok||data?.ok===false){const msg=data?.details||data?.error||data?.message||`HTTP ${res.status}`,err=new Error(msg);err.code=data?.error||`HTTP_${res.status}`;err.httpStatus=res.status;err.payload=data;throw err}
- if(name==='resolve-fund')serverMutationRevision++;return data;
+ if(name==='resolve-fund'&&body?.action!=='quota')serverMutationRevision++;return data;
 }
 function validIsin(isin){
  isin=String(isin||'').trim().toUpperCase();if(!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(isin))return false;
@@ -597,7 +597,7 @@ async function performCloudSync(userId,epoch,options,revision){
   for(const n of navs){const f=nextFunds[n.isin];if(f&&(!f.latest_nav||n.nav_date>f.latest_nav.date))f.latest_nav={date:n.nav_date,nav:+n.nav,currency:n.currency||f.currency||'EUR',source:n.source||'Supabase',fetched_at:n.fetched_at||null}}
   const dates=[...navs.map(n=>n.nav_date),...listingPrices.map(p=>p.price_date),...ops.flatMap(o=>[o.operation_date,o.execution_date,o.reference_nav_date]),...recurringRules.map(r=>r.start_date)],firstDate=dates.reduce((oldest,date)=>/^\d{4}-\d{2}-\d{2}$/.test(String(date))&&(!oldest||date<oldest)?date:oldest,null);
   const nextFx={fxRates:{...state.fxRates},fxHistory:{...state.fxHistory}};
-  await refreshEurRates([...funds.map(f=>f.currency),...listings.map(l=>l.currency),...navs.map(n=>n.currency),...listingPrices.map(p=>p.currency)],firstDate||`${new Date().getFullYear()}-01-01`,nextFx);
+  if(options.priceChanges===true||options.refreshFx===true)await refreshEurRates([...funds.map(f=>f.currency),...listings.map(l=>l.currency),...navs.map(n=>n.currency),...listingPrices.map(p=>p.currency)],firstDate||`${new Date().getFullYear()}-01-01`,nextFx);
   if(session?.user?.id!==userId||sessionEpoch!==epoch||revision!==serverMutationRevision)return false;
   const remembered=safeStorageGet(ACTIVE_PORTFOLIO_KEY),wanted=portfolios.find(p=>p.id===remembered)||portfolios.find(p=>p.id===state.activePortfolioId)||portfolios.find(p=>p.is_default)||portfolios[0];
   const prior={state:{...state},snapshot:cloudSnapshot,accounts:cloudAccounts,navs:navHistory,prices:listingHistory};
