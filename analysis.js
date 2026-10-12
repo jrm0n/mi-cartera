@@ -9,13 +9,23 @@ function latestPortfolioDownload(){
  for(const symbol of symbols)for(const row of listingHistory[symbol]||[])stamps.push(row.fetched_at);
  return stamps.filter(Boolean).map(x=>new Date(x).getTime()).filter(Number.isFinite).reduce((latest,x)=>Math.max(latest,x),0)||null;
 }
-function renderHomeDates(){
- const date=state.lastNavUpdate?`Cotización más reciente: ${new Date(state.lastNavUpdate+'T00:00:00').toLocaleDateString('es-ES')}`:'Sin precio/VL online · valoración provisional';
- const download=latestPortfolioDownload(),sync=madridDateTime(state.cloudSyncedAt);
- const lines=[date,download?`Última descarga registrada: ${madridDateTime(download)}`:'Última descarga: sin hora registrada'];
- if(sync)lines.push(`Sincronización del móvil: ${sync}`);
- const el=document.getElementById('lastUpdate');el.textContent=lines.join('\n');el.title='Horas de España peninsular. La descarga corresponde a la última posición con fecha registrada; otras posiciones pueden tener datos anteriores.';
+function portfolioDownloadSlot(value){
+ if(!value)return null;
+ const date=new Date(value);if(!Number.isFinite(date.getTime()))return null;
+ const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Madrid',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hourCycle:'h23'}).formatToParts(date);
+ const values=Object.fromEntries(parts.map(p=>[p.type,p.value]));
+ const hour=Number(values.hour);let day=new Date(Date.UTC(Number(values.year),Number(values.month)-1,Number(values.day)));
+ if(hour<6)day.setUTCDate(day.getUTCDate()-1);
+ const stamp=day.toLocaleDateString('es-ES',{timeZone:'UTC',day:'2-digit',month:'2-digit',year:'numeric'});
+ return `${stamp} · ${hour>=6&&hour<18?'06:00':'18:00'}`;
 }
+function renderHomeDates(){
+ const slot=portfolioDownloadSlot(latestPortfolioDownload());
+ const el=document.getElementById('lastUpdate');
+ el.textContent=slot||(state.lastNavUpdate?new Date(state.lastNavUpdate+'T00:00:00').toLocaleDateString('es-ES'):'—');
+ el.title='';
+}
+
 
 
 function renderHome(){
