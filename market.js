@@ -29,9 +29,9 @@ async function refreshEodQuota(){
 }
 window.refreshEodQuota=refreshEodQuota;
 
-function setRefreshProgress(running,message,current=0,totalCount=0,kind='ok'){
+function setRefreshProgress(running,message,current=0,totalCount=0,kind='ok',mode='download'){
  const box=document.getElementById('refreshProgress'),text=document.getElementById('refreshProgressText'),fill=document.getElementById('refreshProgressFill'),button=document.getElementById('refreshBtn');if(!box||!text||!fill||!button)return;
- box.hidden=false;text.textContent=message;const percent=totalCount>0?Math.min(100,Math.max(0,current/totalCount*100)):(running?8:100);fill.style.width=`${percent}%`;fill.style.background=kind==='error'?'var(--bad)':kind==='warn'?'var(--warn)':'var(--good)';button.disabled=running;button.textContent=running?`↻ Actualizando${totalCount?` ${current}/${totalCount}`:'…'}`:'↻ Actualizar cartera';button.setAttribute('aria-busy',running?'true':'false');
+ box.hidden=false;text.textContent=message;const percent=totalCount>0?Math.min(100,Math.max(0,current/totalCount*100)):(running?8:100);fill.style.width=`${percent}%`;fill.style.background=kind==='error'?'var(--bad)':kind==='warn'?'var(--warn)':'var(--good)';button.disabled=running;button.textContent=running&&mode==='sync'?'↻ Sincronizando…':'↻ Sincronizar';button.setAttribute('aria-busy',running&&mode==='sync'?'true':'false');const download=document.getElementById('downloadQuotesBtn');if(download){download.disabled=running;download.textContent=running&&mode==='download'?`↻ Descargando${totalCount?` ${current}/${totalCount}`:'…'}`:'↻ Descargar cotizaciones';download.setAttribute('aria-busy',running&&mode==='download'?'true':'false');}
 }
 function allPortfolioMarketPositions(){
  if(!cloudSnapshot)return state.positions||[];const activePortfolioIds=new Set((state.portfolios||[]).filter(p=>p.active!==false).map(p=>p.id)),accounts=(cloudSnapshot.accounts||[]).filter(a=>a.active!==false&&activePortfolioIds.has(a.portfolio_id)),accountIds=new Set(accounts.map(a=>a.id)),ops=(cloudSnapshot.ops||[]).filter(o=>accountIds.has(o.account_id)),rules=(cloudSnapshot.recurringRules||[]).filter(r=>accountIds.has(r.account_id)&&activePortfolioIds.has(r.portfolio_id)),recurring=expandRecurringRules(rules,cloudSnapshot.navs||[],cloudSnapshot.listingPrices||[]),positions=buildPositions([...ops,...recurring.operations],accounts,cloudSnapshot.funds||[],cloudSnapshot.navs||[],cloudSnapshot.listingPrices||[]),accountMap=Object.fromEntries(accounts.map(a=>[a.id,a])),portfolioMap=Object.fromEntries((state.portfolios||[]).map(p=>[p.id,p.name]));return positions.map(p=>{const account=accountMap[p.accountId];return{...p,portfolioName:portfolioMap[account?.portfolio_id]||'Cartera'}});
@@ -85,7 +85,7 @@ async function performRefreshRetry(keys){
  const wanted=new Set(keys),old=state.refreshReport?.rows||[],targets=old.filter(x=>wanted.has(x.key)).map(x=>({key:x.key,isin:x.isin,listingSymbol:x.listingSymbol||null,name:x.name||x.isin,navDate:x.quoteDate||x.navDate||null,portfolios:x.portfolios||[]}));if(!targets.length)return;setRefreshProgress(true,'Reintentando instrumentos fallidos…',0,targets.length);try{const retried=await runRefreshTargets(targets);if(!await syncFromCloud(false,{priceChanges:true}))throw new Error('No se pudo sincronizar la cartera después del reintento.');const byKey=new Map(retried.map(x=>[x.key,x])),rows=old.map(x=>byKey.get(x.key)||x),summary=refreshReportSummary(rows);state.refreshReport={startedAt:state.refreshReport?.startedAt||new Date().toISOString(),finishedAt:new Date().toISOString(),...summary,rows};saveCache();const text=`Reintento completado: ${retried.filter(x=>x.status==='updated').length} actualizados, ${retried.filter(x=>x.status==='stale').length} atrasados y ${retried.filter(x=>x.status==='failed').length} con error.`;setRefreshProgress(false,text,targets.length,targets.length,retried.some(x=>x.status==='failed')?'error':retried.some(x=>x.status==='stale')?'warn':'ok');renderAll();alert(text)}catch(err){setRefreshProgress(false,'No se pudo completar el reintento.',0,targets.length,'error');alert('No se pudo completar el reintento: '+err.message)}
 }
 window.retryRefreshTarget=key=>retryRefreshKeys([key]);window.retryFailedRefreshes=()=>retryRefreshKeys((state.refreshReport?.rows||[]).filter(x=>x.status==='failed').map(x=>x.key));
-async function refreshPortfolio(){const button=document.getElementById('refreshBtn');if(button?.disabled)return;state.lastValue=total();saveCache();try{await refreshAllMarketData(true)}catch(err){console.error(err);setRefreshProgress(false,'No se pudo completar la actualización.',0,1,'error');alert('No se pudo actualizar la cartera: '+err.message)}}
+async function downloadPortfolioQuotes(){if(state.readonly)return;const button=document.getElementById('downloadQuotesBtn');if(button?.disabled)return;state.lastValue=total();saveCache();try{await refreshAllMarketData(true)}catch(err){console.error(err);setRefreshProgress(false,'No se pudo completar la actualización.',0,1,'error');alert('No se pudo actualizar la cartera: '+err.message)}}
 const BACKUP_TABLES=['portfolios','accounts','operations','transfers','recurring_operations'];
 function backupStatus(message,isError=false){const el=document.getElementById('backupStatus');if(el){el.textContent=message;el.classList.toggle('metric-negative',isError)}}
 async function backupDigest(tables){
@@ -216,5 +216,18 @@ async function manualPublicTarget(key,action='public'){
  try{const row=await refreshOneTarget(target,action);if(action==='eodhd')await refreshEodQuota();if(!await syncFromCloud(false,{priceChanges:true}))throw Error('No se pudo leer el resultado guardado');
  const old=state.refreshReport?.rows||[],rows=old.some(x=>x.key===key)?old.map(x=>x.key===key?row:x):[...old,row];state.refreshReport={finishedAt:new Date().toISOString(),...refreshReportSummary(rows),rows};saveCache();renderAll();setRefreshProgress(false,row.error||'Datos guardados y leídos desde Supabase.',1,1,row.status==='failed'?'error':'ok');if(row.status==='failed')alert(row.error);
  }catch(e){setRefreshProgress(false,e.message,0,1,'error');alert(e.message)}
+ });
+}
+
+// Inicio solo lee Supabase; no invoca resolve-fund ni proveedores de mercado.
+async function synchronizePortfolio(){
+ const button=document.getElementById('refreshBtn');if(button?.disabled)return;
+ return exclusiveMarketRefresh(async()=>{
+  state.lastValue=total();saveCache();
+  setRefreshProgress(true,'Leyendo los datos guardados en Supabase…',0,0,'ok','sync');
+  try{
+   if(!await syncFromCloud(false))throw new Error('No se pudo sincronizar. Comprueba la conexión e inténtalo de nuevo.');
+   renderAll();setRefreshProgress(false,'Datos sincronizados con Supabase.',1,1,'ok','sync');alert('Datos sincronizados con Supabase.');
+  }catch(err){console.error(err);setRefreshProgress(false,'No se pudo sincronizar. Se muestran los últimos datos disponibles.',0,1,'error','sync');alert('No se pudo sincronizar: '+err.message)}
  });
 }
