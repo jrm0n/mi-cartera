@@ -99,16 +99,6 @@ const meta=p=>state.funds?.[p.isin]||{name:p.isin,theme:'Sin clasificar',manager
 const isStockType=type=>/\b(?:STOCK|EQUITY|SHARES?)\b/i.test(String(type||''));
 const total=()=>state.positions.reduce((a,p)=>a+posValue(p),0);
 
-async function refreshEurRates(currencies,fromDate=`${new Date().getFullYear()}-01-01`,fxState=state){
- fxState.fxRates=fxState.fxRates||{};fxState.fxHistory=fxState.fxHistory||{};fxState.fxRates.EUR={rate:1,date:todayISO(),source:'EUR'};fxState.fxHistory.EUR=[];
- const codes=[...new Set((currencies||[]).map(x=>String(x||'').toUpperCase()).filter(x=>x&&x!=='EUR'))];
- await Promise.all(codes.map(async code=>{
-  const cached=fxState.fxRates[code];if(!(cached?.rate>0&&cached.date===todayISO()))try{const res=await fetchWithTimeout(`https://api.frankfurter.dev/v2/providers/ecb/rate/${encodeURIComponent(code.toLowerCase())}/eur`,{cache:'no-store'});if(!res.ok)throw new Error(`HTTP ${res.status}`);const data=await res.json(),rate=Number(data?.rate);if(!(rate>0))throw new Error('Tipo de cambio no disponible');fxState.fxRates[code]={rate,date:data.date||todayISO(),source:'BCE vía Frankfurter'}}catch(err){console.warn('FX actual',code,err)}
-  const history=fxState.fxHistory[code]||[],covers=history.length&&history[0].date<=fromDate&&dayDifference(todayISO(),history.at(-1).date)<=7;if(covers)return;
-  try{const url=`https://api.frankfurter.dev/v2/providers/ecb/rates?from=${encodeURIComponent(fromDate)}&to=${todayISO()}&base=${encodeURIComponent(code.toLowerCase())}&quotes=eur`,res=await fetchWithTimeout(url,{cache:'no-store'});if(!res.ok)throw new Error(`HTTP ${res.status}`);const data=await res.json(),rows=(Array.isArray(data)?data:(data?.rates||[])).map(x=>({date:String(x.date||''),rate:Number(x.rate)})).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x.date)&&x.rate>0).sort((a,b)=>a.date.localeCompare(b.date));if(!rows.length)throw new Error('Histórico vacío');fxState.fxHistory[code]=rows}catch(err){console.warn('FX histórico',code,err);fxState.fxHistory[code]=history}
- }));
-}
-
 // --- Motor de calculo v0.7.0 -------------------------------------------------
 // Criterios:
 // 1) La valoracion actual usa SIEMPRE un precio/VL exacto del mercado seleccionado.
@@ -385,9 +375,9 @@ async function registerFundShell(isin,fallback=null){
  const name=fallback?.name||isin,theme=fallback?.category||'Sin clasificar',currency=fallback?.currency||'EUR';
  return rpc('ensure_fund',{p_isin:isin,p_name:name,p_theme:theme,p_currency:currency});
 }
-async function resolveFund(isin,includeHistory=false,forceMetadata=false,listingSymbol=null,refreshQuote=false){
+async function resolveFund(isin,includeHistory=false,forceMetadata=false,listingSymbol=null,refreshQuote=false,action="public"){
  isin=String(isin||'').trim().toUpperCase();if(!validIsin(isin))throw new Error('ISIN no válido');
- const request={isin,include_history:!!includeHistory,force_metadata:!!forceMetadata,listing_symbol:listingSymbol||null,refresh_quote:!!refreshQuote};let result=null,lastError=null;
+ const request={isin,action,include_history:!!includeHistory,force_metadata:!!forceMetadata,listing_symbol:listingSymbol||null,refresh_quote:!!refreshQuote};let result=null,lastError=null;
  try{result=await edge('resolve-fund',request)}catch(err){lastError=err}
  if(!result&&missingFundForeignKey(lastError)){
   await registerFundShell(isin,null);
@@ -591,19 +581,23 @@ async function performCloudSync(userId,epoch,options,revision){
   if(!portfolios.length)throw new Error('NO_ACCESS: Esta cuenta no tiene carteras asignadas. Pide al propietario que comparta una cartera contigo.');
   const isins=[...new Set([...ops.map(o=>o.isin),...recurringRules.map(r=>r.isin),...transfers.flatMap(t=>[t.from_isin,t.to_isin])])].filter(Boolean);
   const previous=cloudSnapshot,incremental=!!options.priceChanges&&!!previous;
-  const [funds,listings,navs]=await Promise.all([selectForValues('funds','isin',isins),selectForValues('instrument_listings','isin',isins),readPriceChanges('fund_navs','isin',isins,previous?.navs,['isin','nav_date'],incremental)]);
+  const [funds,listings,sourceStates]=await Promise.all([selectForValues('funds','isin',isins),selectForValues('instrument_listings','isin',isins),selectForValues('instrument_source_state','isin',isins,'select=instrument_key,isin,listing_symbol,source_name,status,error,initialized,cursor_date,diagnostics,last_attempt_at,last_success_at,fallback_at&order=instrument_key.asc')]);
+  const sourceChanged=sourceStates.some(x=>x.source_name?.startsWith('Kutxabank')&&x.last_success_at!==previous?.sourceStates?.find(y=>y.instrument_key===x.instrument_key)?.last_success_at);
+  const navs=await readPriceChanges('fund_navs','isin',isins,previous?.navs,['isin','nav_date'],incremental&&!sourceChanged);
   const listingPrices=await readPriceChanges('listing_prices','provider_symbol',listings.map(l=>l.provider_symbol),previous?.listingPrices,['provider_symbol','price_date'],incremental);
   const nextFunds={},nextListings={};for(const f of funds)nextFunds[f.isin]={...f,theme:f.theme&&f.theme!=='Sin clasificar'?f.theme:f.category||'Sin clasificar'};for(const l of listings)nextListings[l.provider_symbol]=l;
   for(const n of navs){const f=nextFunds[n.isin];if(f&&(!f.latest_nav||n.nav_date>f.latest_nav.date))f.latest_nav={date:n.nav_date,nav:+n.nav,currency:n.currency||f.currency||'EUR',source:n.source||'Supabase',fetched_at:n.fetched_at||null}}
   const dates=[...navs.map(n=>n.nav_date),...listingPrices.map(p=>p.price_date),...ops.flatMap(o=>[o.operation_date,o.execution_date,o.reference_nav_date]),...recurringRules.map(r=>r.start_date)],firstDate=dates.reduce((oldest,date)=>/^\d{4}-\d{2}-\d{2}$/.test(String(date))&&(!oldest||date<oldest)?date:oldest,null);
   const nextFx={fxRates:{...state.fxRates},fxHistory:{...state.fxHistory}};
-  if(options.priceChanges===true||options.refreshFx===true)await refreshEurRates([...funds.map(f=>f.currency),...listings.map(l=>l.currency),...navs.map(n=>n.currency),...listingPrices.map(p=>p.currency)],firstDate||`${new Date().getFullYear()}-01-01`,nextFx);
+  const storedFx=await selectPaged('market_fx_rates','select=currency,rate_date,rate,source&order=currency.asc,rate_date.asc');
+  const fxGroups=new Map();for(const x of storedFx){if(!fxGroups.has(x.currency))fxGroups.set(x.currency,[]);fxGroups.get(x.currency).push({date:x.rate_date,rate:Number(x.rate),source:x.source})}for(const [currency,rows] of fxGroups){nextFx.fxHistory[currency]=rows;const latest=rows.at(-1);nextFx.fxRates[currency]={rate:latest.rate,date:latest.date,source:latest.source}}
+  nextFx.fxRates.EUR={rate:1,date:todayISO(),source:'EUR'};
   if(session?.user?.id!==userId||sessionEpoch!==epoch||revision!==serverMutationRevision)return false;
   const remembered=safeStorageGet(ACTIVE_PORTFOLIO_KEY),wanted=portfolios.find(p=>p.id===remembered)||portfolios.find(p=>p.id===state.activePortfolioId)||portfolios.find(p=>p.is_default)||portfolios[0];
   const prior={state:{...state},snapshot:cloudSnapshot,accounts:cloudAccounts,navs:navHistory,prices:listingHistory};
   try{
   state.portfolios=portfolios;state.activePortfolioId=wanted.id;state.funds=nextFunds;state.listings=nextListings;state.fxRates=nextFx.fxRates;state.fxHistory=nextFx.fxHistory;
-  cloudSnapshot={accounts,ops,transfers,recurringRules,funds,navs,listings,listingPrices};state.lastNavUpdate=[...navs.map(n=>n.nav_date),...listingPrices.map(p=>p.price_date)].reduce((latest,date)=>date&&(!latest||date>latest)?date:latest,null);state.cloudSyncedAt=new Date().toISOString();applyActivePortfolio();safeStorageSet(ACTIVE_PORTFOLIO_KEY,wanted.id);
+  state.sourceStates=sourceStates;cloudSnapshot={accounts,ops,transfers,recurringRules,funds,navs,listings,listingPrices,sourceStates};state.lastNavUpdate=[...navs.map(n=>n.nav_date),...listingPrices.map(p=>p.price_date)].reduce((latest,date)=>date&&(!latest||date>latest)?date:latest,null);state.cloudSyncedAt=new Date().toISOString();applyActivePortfolio();safeStorageSet(ACTIVE_PORTFOLIO_KEY,wanted.id);
   }catch(error){state=prior.state;cloudSnapshot=prior.snapshot;cloudAccounts=prior.accounts;navHistory=prior.navs;listingHistory=prior.prices;document.body.dataset.readonly=state.readonly?'true':'false';invalidateCalculations();throw error}
   setCloudStatus('Sincronizado con Supabase','ok');return true;
  }catch(error){

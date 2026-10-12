@@ -54,15 +54,15 @@ function refreshNeedsFullHistory(target){
 function refreshSafeDetail(value){
  return String(value||'').replace(/https?:\/\/[^\s<>"']+/gi,'[enlace del proveedor]').replace(/(api[_-]?token|api[_-]?key|authorization|bearer)([\s=:]+)[^\s&,;"<>]+/gi,'$1$2[oculto]').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,500);
 }
-async function refreshOneTarget(target){
+async function refreshOneTarget(target,action="public"){
  const startedAt=new Date().toISOString();
  try{
-  const result=await resolveFund(target.isin,refreshNeedsFullHistory(target),false,target.listingSymbol||null,true),quote=result?.latest_nav||null;
+  const result=await resolveFund(target.isin,refreshNeedsFullHistory(target),false,target.listingSymbol||null,true,action),quote=result?.latest_nav||null;
   const validQuote=!!quote?.date&&Number.isFinite(+quote?.nav)&&+quote.nav>0;
   const quoteRefreshFailed=result?.history?.reason==='QUOTE_REFRESH_FAILED'||result?.quote_status?.refresh_failed===true;
-  const stale=result?.quote_status?.stale===true,status=!validQuote||quoteRefreshFailed?'failed':stale?'stale':'updated';
+  const stale=result?.quote_status?.stale===true,status=!validQuote||quoteRefreshFailed&&!result?.history?.fallback_used?'failed':stale?'stale':'updated';
   const diagnostics=result?.diagnostics||[];
-  const error=quoteRefreshFailed?`No se pudo renovar la cotización.${validQuote?` Se conserva el precio del ${quote.date}.`:''}`:!validQuote?'No se obtuvo un VL/precio válido.':null;
+  const error=quoteRefreshFailed&&!result?.history?.fallback_used?`No se pudo renovar la cotización.${validQuote?` Se conserva el precio del ${quote.date}.`:''}`:!validQuote?'No se obtuvo un VL/precio válido.':null;
   return{...target,name:result?.fund?.name||target.name,status,source:quote?.source||result?.sources?.identity_nav||null,quoteDate:quote?.date||null,quoteValue:validQuote?+quote.nav:null,currency:quote?.currency||null,historyReason:result?.history?.reason||null,historyRows:+result?.history?.rows_inserted||0,diagnostics,error,errorCode:quoteRefreshFailed?'QUOTE_REFRESH_FAILED':null,startedAt,finishedAt:new Date().toISOString()};
  }catch(err){
   const diagnostics=[...(err?.payload?.diagnostics||[])];
@@ -79,10 +79,10 @@ async function runRefreshTargets(targets){
 function refreshReportSummary(rows){return{updated:rows.filter(x=>x.status==='updated').length,stale:rows.filter(x=>x.status==='stale').length,failed:rows.filter(x=>x.status==='failed').length}}
 async function performAllMarketDataRefresh(showNotice=true,options={}){
  setRefreshProgress(true,'Cargando los fondos de todos los perfiles…',0,0);if((!options.reuseSnapshot||!cloudSnapshot)&&!await syncFromCloud(false))throw new Error('No se pudo sincronizar antes de actualizar; inténtalo de nuevo.');const targets=refreshTargets();setCloudStatus(`Actualizando todos los perfiles… 0/${targets.length}`);setRefreshProgress(true,targets.length?'Preparando todos los perfiles…':'No hay posiciones que actualizar',0,targets.length);if(!targets.length){setRefreshProgress(false,'No hay posiciones que actualizar.',0,0);return{updated:0,stale:0,failed:0,rows:[]}}
- const rows=await runRefreshTargets(targets);await refreshEodQuota();if(!await syncFromCloud(false,{priceChanges:true}))throw new Error('Se consultaron los precios, pero no se pudo sincronizar la cartera; inténtalo de nuevo.');const summary=refreshReportSummary(rows);state.refreshReport={startedAt:rows[0]?.startedAt||new Date().toISOString(),finishedAt:new Date().toISOString(),...summary,rows};saveCache();const parts=[`${summary.updated} actualizados`];if(summary.stale)parts.push(`${summary.stale} atrasados`);if(summary.failed)parts.push(`${summary.failed} con error`);const resultText=`Todos los perfiles procesados: ${parts.join(', ')}.`;setRefreshProgress(false,resultText,targets.length,targets.length,summary.failed?'error':summary.stale?'warn':'ok');setCloudStatus(`Sincronizado con Supabase · ${resultText}`,summary.failed?'error':summary.stale?'warn':'');renderAll();if(showNotice)alert(resultText);return{...summary,rows}
+ const rows=await runRefreshTargets(targets);if(!await syncFromCloud(false,{priceChanges:true}))throw new Error('Se consultaron los precios, pero no se pudo sincronizar la cartera; inténtalo de nuevo.');const summary=refreshReportSummary(rows);state.refreshReport={startedAt:rows[0]?.startedAt||new Date().toISOString(),finishedAt:new Date().toISOString(),...summary,rows};saveCache();const parts=[`${summary.updated} actualizados`];if(summary.stale)parts.push(`${summary.stale} atrasados`);if(summary.failed)parts.push(`${summary.failed} con error`);const resultText=`Todos los perfiles procesados: ${parts.join(', ')}.`;setRefreshProgress(false,resultText,targets.length,targets.length,summary.failed?'error':summary.stale?'warn':'ok');setCloudStatus(`Sincronizado con Supabase · ${resultText}`,summary.failed?'error':summary.stale?'warn':'');renderAll();if(showNotice)alert(resultText);return{...summary,rows}
 }
 async function performRefreshRetry(keys){
- const wanted=new Set(keys),old=state.refreshReport?.rows||[],targets=old.filter(x=>wanted.has(x.key)).map(x=>({key:x.key,isin:x.isin,listingSymbol:x.listingSymbol||null,name:x.name||x.isin,navDate:x.quoteDate||x.navDate||null,portfolios:x.portfolios||[]}));if(!targets.length)return;setRefreshProgress(true,'Reintentando instrumentos fallidos…',0,targets.length);try{const retried=await runRefreshTargets(targets);await refreshEodQuota();if(!await syncFromCloud(false,{priceChanges:true}))throw new Error('No se pudo sincronizar la cartera después del reintento.');const byKey=new Map(retried.map(x=>[x.key,x])),rows=old.map(x=>byKey.get(x.key)||x),summary=refreshReportSummary(rows);state.refreshReport={startedAt:state.refreshReport?.startedAt||new Date().toISOString(),finishedAt:new Date().toISOString(),...summary,rows};saveCache();const text=`Reintento completado: ${retried.filter(x=>x.status==='updated').length} actualizados, ${retried.filter(x=>x.status==='stale').length} atrasados y ${retried.filter(x=>x.status==='failed').length} con error.`;setRefreshProgress(false,text,targets.length,targets.length,retried.some(x=>x.status==='failed')?'error':retried.some(x=>x.status==='stale')?'warn':'ok');renderAll();alert(text)}catch(err){setRefreshProgress(false,'No se pudo completar el reintento.',0,targets.length,'error');alert('No se pudo completar el reintento: '+err.message)}
+ const wanted=new Set(keys),old=state.refreshReport?.rows||[],targets=old.filter(x=>wanted.has(x.key)).map(x=>({key:x.key,isin:x.isin,listingSymbol:x.listingSymbol||null,name:x.name||x.isin,navDate:x.quoteDate||x.navDate||null,portfolios:x.portfolios||[]}));if(!targets.length)return;setRefreshProgress(true,'Reintentando instrumentos fallidos…',0,targets.length);try{const retried=await runRefreshTargets(targets);if(!await syncFromCloud(false,{priceChanges:true}))throw new Error('No se pudo sincronizar la cartera después del reintento.');const byKey=new Map(retried.map(x=>[x.key,x])),rows=old.map(x=>byKey.get(x.key)||x),summary=refreshReportSummary(rows);state.refreshReport={startedAt:state.refreshReport?.startedAt||new Date().toISOString(),finishedAt:new Date().toISOString(),...summary,rows};saveCache();const text=`Reintento completado: ${retried.filter(x=>x.status==='updated').length} actualizados, ${retried.filter(x=>x.status==='stale').length} atrasados y ${retried.filter(x=>x.status==='failed').length} con error.`;setRefreshProgress(false,text,targets.length,targets.length,retried.some(x=>x.status==='failed')?'error':retried.some(x=>x.status==='stale')?'warn':'ok');renderAll();alert(text)}catch(err){setRefreshProgress(false,'No se pudo completar el reintento.',0,targets.length,'error');alert('No se pudo completar el reintento: '+err.message)}
 }
 window.retryRefreshTarget=key=>retryRefreshKeys([key]);window.retryFailedRefreshes=()=>retryRefreshKeys((state.refreshReport?.rows||[]).filter(x=>x.status==='failed').map(x=>x.key));
 async function refreshPortfolio(){const button=document.getElementById('refreshBtn');if(button?.disabled)return;state.lastValue=total();saveCache();try{await refreshAllMarketData(true)}catch(err){console.error(err);setRefreshProgress(false,'No se pudo completar la actualización.',0,1,'error');alert('No se pudo actualizar la cartera: '+err.message)}}
@@ -199,3 +199,22 @@ function exclusiveMarketRefresh(action){
 }
 function refreshAllMarketData(showNotice=true,options={}){return exclusiveMarketRefresh(()=>performAllMarketDataRefresh(showNotice,options));}
 function retryRefreshKeys(keys){return exclusiveMarketRefresh(()=>performRefreshRetry(keys));}
+
+// Los estados del descargador diario se leen de Supabase, incluso sin refresco manual.
+function publicSourceCardHtml(){
+ const rows=state.sourceStates||[],visible=new Set((state.positions||[]).map(p=>refreshTargetKey(p)));
+ const cards=rows.filter(x=>visible.has(x.instrument_key)).map(x=>{
+  const fund=state.funds?.[x.isin],q=x.last_success_at?new Date(x.last_success_at).toLocaleString('es-ES'):null;
+  return `<div class="quality-row"><strong>${esc(fund?.name||x.isin)}</strong><div>${esc(x.source_name||'Fuente pública')}</div><div class="muted">${q?'Última descarga correcta: '+esc(q):'Pendiente de la primera descarga'}</div>${x.status==='failed'?`<div class="metric-negative">La fuente ha fallado: ${esc(refreshSafeDetail(x.error))}</div>${x.fallback_at?'<div class="muted">Se utilizó EODHD manualmente. La incidencia de la fuente sigue pendiente.</div>':''}${state.readonly?'':`<button class="btn small" data-public-retry="${esc(x.instrument_key)}">Reintentar fuente</button> <button class="btn small" data-eod-fallback="${esc(x.instrument_key)}">Actualizar desde EODHD</button>`}`:''}</div>`;
+ }).join('');
+ return `<details class="refresh-report"><summary>Descarga diaria · fuentes y estado</summary><div class="muted">Un VL con hasta 4 días de antigüedad es normal. Más antigüedad se muestra como aviso, no como fallo de la fuente.</div>${cards||'<div class="muted">La primera descarga diaria está pendiente.</div>'}</details>`;
+}
+async function manualPublicTarget(key,action='public'){
+ const target=refreshTargets().find(x=>x.key===key);if(!target)return;
+ await exclusiveMarketRefresh(async()=>{
+ setRefreshProgress(true,action==='eodhd'?'Consultando EODHD manualmente…':'Reintentando fuente…',0,1);
+ try{const row=await refreshOneTarget(target,action);if(action==='eodhd')await refreshEodQuota();if(!await syncFromCloud(false,{priceChanges:true}))throw Error('No se pudo leer el resultado guardado');
+ const old=state.refreshReport?.rows||[],rows=old.some(x=>x.key===key)?old.map(x=>x.key===key?row:x):[...old,row];state.refreshReport={finishedAt:new Date().toISOString(),...refreshReportSummary(rows),rows};saveCache();renderAll();setRefreshProgress(false,row.error||'Datos guardados y leídos desde Supabase.',1,1,row.status==='failed'?'error':'ok');if(row.status==='failed')alert(row.error);
+ }catch(e){setRefreshProgress(false,e.message,0,1,'error');alert(e.message)}
+ });
+}
