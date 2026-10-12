@@ -1,7 +1,26 @@
+function madridDateTime(value){
+ const date=new Date(value);
+ return Number.isFinite(date.getTime())?date.toLocaleString('es-ES',{timeZone:'Europe/Madrid',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}):null;
+}
+function latestPortfolioDownload(){
+ const positions=state.positions||[],isins=new Set(positions.map(p=>p.isin)),symbols=new Set(positions.map(p=>p.listingSymbol).filter(Boolean));
+ const stamps=(state.sourceStates||[]).filter(x=>isins.has(x.isin)&&(!x.listing_symbol||symbols.has(x.listing_symbol))).map(x=>x.last_success_at);
+ for(const isin of isins)stamps.push(state.funds?.[isin]?.latest_nav?.fetched_at);
+ for(const symbol of symbols)for(const row of listingHistory[symbol]||[])stamps.push(row.fetched_at);
+ return stamps.filter(Boolean).map(x=>new Date(x).getTime()).filter(Number.isFinite).reduce((latest,x)=>Math.max(latest,x),0)||null;
+}
+function renderHomeDates(){
+ const date=state.lastNavUpdate?`Cotización más reciente: ${new Date(state.lastNavUpdate+'T00:00:00').toLocaleDateString('es-ES')}`:'Sin precio/VL online · valoración provisional';
+ const download=latestPortfolioDownload(),sync=madridDateTime(state.cloudSyncedAt);
+ const lines=[date,download?`Última descarga registrada: ${madridDateTime(download)}`:'Última descarga: sin hora registrada'];
+ if(sync)lines.push(`Sincronización del móvil: ${sync}`);
+ const el=document.getElementById('lastUpdate');el.textContent=lines.join('\n');el.title='Horas de España peninsular. La descarga corresponde a la última posición con fecha registrada; otras posiciones pueden tener datos anteriores.';
+}
+
 
 function renderHome(){
  const items=positionsForPeriod(),universe=analysisPositionUniverse(),t=items.reduce((a,p)=>a+posValue(p),0),ri=portfolioPerformanceForPeriod(universe,state.period);const integrityIssues=state.calculationIssues||[],warning=document.getElementById('calculationWarning');document.getElementById('totalValue').textContent=integrityIssues.length?'No disponible':eur(t);if(warning){warning.hidden=!integrityIssues.length;warning.textContent=integrityIssues.length?`Cálculo incompleto: ${integrityIssues.length} operación${integrityIssues.length===1?'':'es'} incoherente${integrityIssues.length===1?'':'s'}. Consulta Análisis → Calidad de los datos.`:''}const yt=document.getElementById('totalYtd');yt.innerHTML=integrityIssues.length?'<span class="muted">No disponible</span>':viewerReturnLines(ri);yt.title=integrityIssues.length?'Cálculo incompleto por operación incoherente':ri.available?'Resultado en euros y porcentaje del periodo seleccionado':'Sin histórico suficiente';
- const diff=state.lastValue===null?0:total()-state.lastValue;document.getElementById('sinceUpdate').innerHTML=integrityIssues.length||state.lastValue===null?'—':`<span class="${diff>=0?'metric-positive':'metric-negative'}">${diff>=0?'+':''}${eur(diff)}</span>`;document.getElementById('lastUpdate').textContent=state.lastNavUpdate?`Datos hasta ${new Date(state.lastNavUpdate+'T00:00:00').toLocaleDateString('es-ES')}`:'Sin precio/VL online · valoración provisional';
+ const diff=state.lastValue===null?0:total()-state.lastValue;document.getElementById('sinceUpdate').innerHTML=integrityIssues.length||state.lastValue===null?'—':`<span class="${diff>=0?'metric-positive':'metric-negative'}">${diff>=0?'+':''}${eur(diff)}</span>`;renderHomeDates();
  const groups={};items.forEach(p=>(groups[p.entity]??=[]).push(p));
  document.getElementById('entitySummary').innerHTML=Object.entries(groups).map(([e,ps])=>{const incomplete=integrityIssues.some(issue=>issue.entity===e),v=ps.reduce((a,p)=>a+posValue(p),0),rr=portfolioPerformanceForPeriod(universe.filter(p=>p.entity===e),state.period);return `<article class="entity-card" data-entity="${esc(e)}"><div class="entity-main"><div><div class="entity-name">${entityWordmark(e)}</div><div class="entity-sub">${ps.length} ${ps.length===1?'posición':'posiciones'}</div></div><div class="entity-value">${incomplete?'No disponible':eur(v)}<div class="viewer-return-lines">${incomplete?'<span class="muted">Cálculo incompleto</span>':viewerReturnLines(rr)}</div></div></div><div class="entity-detail">${ps.map(p=>{const ec=ENTITY[p.entity]||{fundColor:'#64748b'},pi=portfolioPerformanceForPeriod([p],state.period);return `<div class="fund-row" data-pos="${esc(p.id)}" style="background:color-mix(in srgb, ${ec.fundColor} 11%, var(--panel));border-left:4px solid ${ec.fundColor}"><div><div class="fund-name">${esc(meta(p).name)}</div><div class="fund-meta">${esc(p.isin)}${p.listingSymbol&&state.listings?.[p.listingSymbol]?` · ${esc(listingLabel(state.listings[p.listingSymbol]))}`:''} · ${esc(meta(p).theme)} · ${esc(positionUnitsText(p))}</div></div><div class="fund-value">${eur(posValue(p))}<div class="viewer-return-lines">${viewerReturnLines(pi)}</div></div></div>`}).join('')}</div></article>`}).join('')||'<div class="notice">No hay posiciones para el periodo seleccionado.</div>';
  document.querySelectorAll('.entity-main').forEach(x=>x.onclick=()=>x.closest('.entity-card').classList.toggle('open'));document.querySelectorAll('.fund-row').forEach(x=>x.onclick=e=>{e.stopPropagation();openDetail(x.dataset.pos)});
@@ -44,7 +63,7 @@ function renderViewerSummary(){
  document.getElementById('viewerPositionsLabel').textContent=current?'Tus posiciones actuales':`Posiciones al 31/12/${year}`;
  const dates=rows.map(row=>row.quoteDate).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(String(d))).sort(),missing=rows.some(row=>!Number.isFinite(row.value)||current&&(row.p.navStatus==='provisional'||row.p.navStatus==='market_required'));
  const priceDate=dates.length?`Precio más antiguo utilizado: ${new Date(dates[0]+'T00:00:00').toLocaleDateString('es-ES')}`:'Sin precios disponibles';
- const syncDate=state.cloudSyncedAt?`Última sincronización: ${new Date(state.cloudSyncedAt).toLocaleString('es-ES')}`:'Sin sincronización reciente';
+ const syncDate=state.cloudSyncedAt?`Última sincronización: ${madridDateTime(state.cloudSyncedAt)}`:'Sin sincronización reciente';
  document.getElementById('viewerPriceDate').textContent=`${priceDate}${missing?' · Faltan precios de algunas posiciones.':''}${integrityIssues.length?` · Cálculo incompleto: ${integrityIssues.length} operación(es) incoherente(s). Solicita al propietario que revise Análisis → Calidad de los datos.`:''}${snapshot?.approximate?' · Algún precio histórico es aproximado.':''} · ${syncDate}`;
  const banks=new Map();for(const row of rows){const name=row.p.entity||'Sin entidad';if(!banks.has(name))banks.set(name,[]);banks.get(name).push(row)}
  document.getElementById('viewerPositions').innerHTML=banks.size?[...banks].map(([name,bankRows])=>{

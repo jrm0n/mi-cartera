@@ -17,10 +17,34 @@ async function syncViewerData(){
  finally{button.disabled=false;spinner.hidden=true;close.hidden=false;close.focus()}
 }
 
+let startupRunning=false;
+function setStartupScreen(mode='loading'){
+ const overlay=document.getElementById('startupOverlay');
+ overlay.hidden=mode==='hidden';
+ document.getElementById('startupSpinner').hidden=mode==='error';
+ document.getElementById('startupRetry').hidden=mode!=='error';
+ document.getElementById('startupTitle').textContent=mode==='error'?'No se pudo cargar la cartera':'Cargando cartera…';
+ document.getElementById('startupMessage').textContent=mode==='error'?'No hay una copia local disponible. Comprueba la conexión y vuelve a intentarlo.':'Recuperando tus datos. Espera un momento.';
+}
 async function init(){
- if(!SUPABASE_URL||!SUPABASE_KEY){showAuth();setAuthMessage('Configuración de Supabase incompleta.',true);return}
- if(await acceptInvitation())return;
- const ok=await ensureSession();if(!ok){showAuth();return}await loadCache();if(state.portfolios.length)updateAccessMode();state.lastValue=null;renderAll();showApp();await syncFromCloud();
+ if(startupRunning)return;
+ startupRunning=true;setStartupScreen();document.getElementById('authGate').classList.add('hidden');document.getElementById('app').classList.add('auth-hidden');
+ let hasCache=false;
+ try{
+  if(!SUPABASE_URL||!SUPABASE_KEY){showAuth();setAuthMessage('Configuración de Supabase incompleta.',true);setStartupScreen('hidden');return}
+  if(await acceptInvitation()){setStartupScreen('hidden');return}
+  const ok=await ensureSession();if(!ok){showAuth();setStartupScreen('hidden');return}
+  hasCache=await loadCache()&&state.portfolios.length>0;
+  if(hasCache){updateAccessMode();state.lastValue=null;renderAll();showApp();setStartupScreen('hidden')}
+  const synced=await syncFromCloud();
+  if(synced){state.lastValue=null;renderAll();showApp();setStartupScreen('hidden')}
+  else if(!document.getElementById('authGate').classList.contains('hidden'))setStartupScreen('hidden');
+  else if(!hasCache)setStartupScreen('error');
+ }catch(error){
+  console.error(error);
+  if(hasCache){setCloudStatus('No se pudo sincronizar · mostrando la copia local','warn');setStartupScreen('hidden')}
+  else setStartupScreen('error');
+ }finally{startupRunning=false}
 }
 
 async function acceptInvitation(){
