@@ -1,0 +1,96 @@
+MI CARTERA — VERSIÓN 0.16.8
+Fecha: 17 de octubre de 2026
+
+OBJETIVO
+
+Reducir el tiempo de Actualizar conservando los históricos y el comportamiento
+de 0.16.7: abrir la última cartera guardada, con el ojo activo, sin consultar
+la cartera en Supabase hasta pulsar Actualizar.
+
+LECTURA AGRUPADA DEL SERVIDOR
+
+Se añade read_portfolio_fast_v1, instalada mediante 035-lectura-rapida.txt.
+La app puede obtener en una petición la cartera, operaciones, metadatos,
+estados, tipos de cambio y las cotizaciones que necesita incorporar.
+
+El servidor compara los puntos de control de cada instrumento. Si su serie
+no ha cambiado, no vuelve a transferir sus cotizaciones. Las nuevas fechas,
+correcciones con sello actualizado y recuperaciones anteriores se incorporan
+al histórico local. Las series nuevas se descargan completas.
+
+Se comprueba el número de registros y la huella de sus fechas. Si hay una
+discrepancia, se vuelve a solicitar completa la serie afectada antes de usar
+el resultado. Se incluyen los casos de borrado y de sustitución de fechas
+sin variación del número de filas.
+
+Los cambios manuales de valores en Supabase sin actualizar fetched_at pueden
+requerir una lectura completa desde Análisis → Datos y versión → Sincronizar ahora.
+La comprobación de fechas no es una auditoría de todos los valores numéricos.
+
+La función es de lectura y usa los permisos y políticas existentes del usuario.
+Se han probado tanto propietarios como invitados. No utiliza privilegios
+de administrador para devolver carteras ajenas. Conserva el orden de lectura
+de las operaciones para no alterar los desempates de su cálculo.
+
+También se crean dos índices de apoyo a las consultas de cotizaciones.
+No se borran ni modifican precios, operaciones, cuentas o carteras.
+No se cambian los horarios ni las fuentes de descarga del servidor.
+
+MENOS TRABAJO EN EL DISPOSITIVO
+
+- Los puntos de control de la lectura estándar se aplican por instrumento;
+  un fondo atrasado ya no obliga a pedir el mismo tramo para todos los demás.
+- Se reutilizan las series preparadas cuando sus datos siguen siendo iguales.
+- Si no cambian precios, operaciones, metadatos de cálculo ni el día de cálculo,
+  se conservan los cálculos existentes en lugar de reconstruirlos.
+- Sin aportaciones recurrentes activas no se recorre su histórico de precios.
+- La copia local deja de almacenar por duplicado las series numéricas.
+- En IndexedDB se separan los precios de los datos de cartera. Una actualización
+  sin cambios de cotización guarda solo los datos pequeños, sin reescribir
+  todo el histórico. Los cambios de precios y su referencia se guardan juntos.
+- Se comprueba que las partes de la copia correspondan al mismo usuario y
+  revisión antes de reconstruirla. La migración admite el formato anterior.
+
+La primera actualización después de instalar puede necesitar migrar la copia
+local. Las siguientes aprovechan el nuevo formato. Si el navegador no dispone
+de IndexedDB, se mantiene el almacenamiento alternativo completo.
+
+COMPATIBILIDAD
+
+Se conserva la lectura estándar. Si todavía no está instalada la nueva función,
+la app puede continuar por esa vía. Para obtener la mejora de la lectura
+agrupada es necesario ejecutar el SQL de esta versión y volver a abrir la app.
+
+La opción de lectura completa de Análisis se mantiene disponible para revisar
+o reconstruir la copia desde el servidor. La actualización no limita el
+histórico a la fecha de compra ni recorta sesiones para reducir su tamaño.
+
+INSTALACIÓN DESDE 0.16.7
+
+1. Ejecutar 035-lectura-rapida.txt en SQL Editor de Supabase.
+   El resultado final debe ser lectura_rapida_instalada = true.
+2. Subir los 15 archivos de la carpeta github a la raíz del repositorio,
+   sustituyendo los existentes y añadiendo fast-sync.js y este TXT.
+3. Esperar a la publicación, cerrar la app y volver a abrirla.
+   Debe aparecer la versión 0.16.8 con la última cartera guardada y el ojo activo.
+4. Pulsar Actualizar y comparar el comportamiento en el dispositivo habitual.
+
+No es necesario publicar resolve-fund ni refresh-market-data de nuevo.
+No repetir las migraciones históricas ni 034-estado-datos.txt.
+
+VALIDACIÓN Y LÍMITES DE LA MEDICIÓN
+
+- 59 pruebas de lógica e interfaz superadas.
+- 13 comprobaciones de PostgreSQL embebido: lectura inicial y posterior,
+  correcciones, borrados, mercados exactos, orden de operaciones y permisos.
+- Prueba en Chromium con 12 fondos y 21.600 cotizaciones simuladas: una lectura
+  sin cambios pasó de 33 peticiones de la vía estándar a una petición agrupada,
+  sin volver a transferir precios. Se mantuvieron los valores de las posiciones.
+- Se comprobó que una lectura sin cambios no reescribe el bloque de precios.
+- Se verificaron la migración de la copia anterior, el arranque sin consultas
+  de cartera, las correcciones y la sustitución de una fecha por otra.
+- La copia no se acepta si sus partes tienen distinto usuario o revisión.
+
+La prueba de navegador utiliza respuestas simuladas y una demora artificial;
+no mide la conexión ni la cartera real del usuario. La mejora en segundos
+dependerá de la red, del dispositivo y del volumen de datos que hayan cambiado.

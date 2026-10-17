@@ -257,7 +257,7 @@ function entityWordmark(name){
 
 const PREFERENCES_KEY='mi_cartera_preferences_v1';
 const PREFERENCE_FIELDS=['group','opFilter','period','analysisEntity','analysisRange','analysisMetric','analysisDrill','analysisComparisons','lastValue'];
-let snapshotDatabasePromise=null,cacheWriteTimer=null,lastCacheRevision=-1,lastCachedReport=null,cacheWriteGeneration=0;
+let snapshotDatabasePromise=null,cacheWriteTimer=null,lastCacheRevision=-1,lastCachedReport=null,cacheWriteGeneration=0,savedPriceWrite=null;
 function snapshotDatabase(){
  if(typeof indexedDB==='undefined')return Promise.resolve(null);
  if(!snapshotDatabasePromise)snapshotDatabasePromise=new Promise(resolve=>{
@@ -267,8 +267,14 @@ function snapshotDatabase(){
  });
  return snapshotDatabasePromise;
 }
-function snapshotRead(db){return new Promise(resolve=>{try{const request=db.transaction('snapshots','readonly').objectStore('snapshots').get('current');request.onsuccess=()=>resolve(request.result||null);request.onerror=()=>resolve(null)}catch{resolve(null)}})}
-function snapshotWrite(db,record){return new Promise((resolve,reject)=>{try{const transaction=db.transaction('snapshots','readwrite');transaction.objectStore('snapshots').put(record,'current');transaction.oncomplete=()=>resolve();transaction.onerror=()=>reject(transaction.error||new Error('Almacenamiento local no disponible'));transaction.onabort=()=>reject(transaction.error||new Error('Escritura local interrumpida'))}catch(error){reject(error)}})}
+function snapshotRead(db){return new Promise(resolve=>{try{
+ const transaction=db.transaction('snapshots','readonly'),store=transaction.objectStore('snapshots'),current=store.get('current'),prices=store.get('prices');
+ transaction.oncomplete=()=>{const record=current.result||null;if(record?.cacheFormat!==3){resolve(record);return}const saved=prices.result;
+  if(!saved||saved.cachedFor!==record.cachedFor||saved.priceRevision!==record.priceRevision){resolve(null);return}
+  resolve({...record,cloudSnapshot:record.cloudSnapshot?{...record.cloudSnapshot,navs:saved.navs||[],listingPrices:saved.listingPrices||[]}:null});
+ };transaction.onerror=()=>resolve(null);transaction.onabort=()=>resolve(null);
+ }catch{resolve(null)}})}
+function snapshotWrite(db,record,prices){return new Promise((resolve,reject)=>{try{const transaction=db.transaction('snapshots','readwrite'),store=transaction.objectStore('snapshots');if(prices)store.put(prices,'prices');store.put(record,'current');transaction.oncomplete=()=>resolve();transaction.onerror=()=>reject(transaction.error||new Error('Almacenamiento local no disponible'));transaction.onabort=()=>reject(transaction.error||new Error('Escritura local interrumpida'))}catch(error){reject(error)}})}
 async function loadCache(){
  const userId=session?.user?.id;if(!userId)return false;let record=null;
  try{const db=await snapshotDatabase();if(db)record=await snapshotRead(db);if(!record)record=JSON.parse(safeStorageGet(CACHE_KEY)||'null')}catch{}
@@ -276,7 +282,9 @@ async function loadCache(){
  const cached=record?.state||record;
  if(cached?.cachedFor!==userId&&record?.cachedFor!==userId||!Array.isArray(cached?.positions)||record?.schemaVersion&&record.schemaVersion!==DATA_SCHEMA_VERSION)return false;
  state={...state,...cached};delete state.cachedFor;delete state.cloudSnapshot;delete state.navHistory;delete state.listingHistory;delete state.schemaVersion;
- cloudSnapshot=record.cloudSnapshot||null;navHistory=record.navHistory||{};listingHistory=record.listingHistory||{};
+ cloudSnapshot=record.cloudSnapshot||null;
+ if(record.cacheFormat>=2&&cloudSnapshot){const series=priceSeriesFor(cloudSnapshot.navs||[],cloudSnapshot.listingPrices||[]);navHistory=series.byIsin;listingHistory=series.byListing}else{navHistory=record.navHistory||{};listingHistory=record.listingHistory||{}}
+ if(record.cacheFormat===3)savedPriceWrite={cachedFor:userId,navs:cloudSnapshot?.navs,listingPrices:cloudSnapshot?.listingPrices,priceRevision:record.priceRevision};
  try{const preferences=JSON.parse(safeStorageGet(PREFERENCES_KEY)||'null');if(preferences?.cachedFor===userId)for(const field of PREFERENCE_FIELDS)if(field in preferences)state[field]=preferences[field]}catch{}
  invalidateCalculations();return true;
 }
@@ -290,13 +298,20 @@ function saveCache(){
 }
 async function persistPortfolioCache(userId=session?.user?.id,generation=cacheWriteGeneration){
  if(!userId||session?.user?.id!==userId||generation!==cacheWriteGeneration)return false;
- const record={cachedFor:userId,schemaVersion:DATA_SCHEMA_VERSION,state:{...state},cloudSnapshot,navHistory,listingHistory};
- try{const db=await snapshotDatabase();if(session?.user?.id!==userId||generation!==cacheWriteGeneration)return false;if(db){await snapshotWrite(db,record);safeStorageRemove(CACHE_KEY)}else if(!safeStorageSet(CACHE_KEY,JSON.stringify(record)))throw new Error('No hay espacio disponible para la copia local');return true}
+ const record={cacheFormat:2,cachedFor:userId,schemaVersion:DATA_SCHEMA_VERSION,state:{...state},cloudSnapshot};
+ try{const db=await snapshotDatabase();if(session?.user?.id!==userId||generation!==cacheWriteGeneration)return false;if(db){
+  const changed=savedPriceWrite?.cachedFor!==userId||savedPriceWrite?.navs!==cloudSnapshot?.navs||savedPriceWrite?.listingPrices!==cloudSnapshot?.listingPrices;
+  const priceRevision=changed?(globalThis.crypto?.randomUUID?.()||String(Date.now())+'-'+Math.random()):savedPriceWrite.priceRevision;
+  const prices=changed?{cachedFor:userId,priceRevision,navs:cloudSnapshot?.navs||[],listingPrices:cloudSnapshot?.listingPrices||[]}:null;
+  const metadata={...record,cacheFormat:3,priceRevision,cloudSnapshot:cloudSnapshot?{...cloudSnapshot,navs:undefined,listingPrices:undefined}:null};
+  await snapshotWrite(db,metadata,prices);if(generation!==cacheWriteGeneration||session?.user?.id!==userId)return false;
+  savedPriceWrite={cachedFor:userId,priceRevision,navs:cloudSnapshot?.navs,listingPrices:cloudSnapshot?.listingPrices};safeStorageRemove(CACHE_KEY);
+ }else if(!safeStorageSet(CACHE_KEY,JSON.stringify(record)))throw new Error('No hay espacio disponible para la copia local');return true}
  catch(error){lastCacheRevision=-1;console.warn('Copia local',error);setCloudStatus('Datos cargados · no se pudo guardar la copia local','warn');return false}
 }
 function clearPortfolioCache(){
- cacheWriteGeneration++;lastCacheRevision=-1;lastCachedReport=null;if(cacheWriteTimer!==null)clearTimeout(cacheWriteTimer);cacheWriteTimer=null;safeStorageRemove(CACHE_KEY);safeStorageRemove(PREFERENCES_KEY);
- void snapshotDatabase().then(db=>{if(db)try{db.transaction('snapshots','readwrite').objectStore('snapshots').delete('current')}catch{}});
+ cacheWriteGeneration++;savedPriceWrite=null;lastCacheRevision=-1;lastCachedReport=null;if(cacheWriteTimer!==null)clearTimeout(cacheWriteTimer);cacheWriteTimer=null;safeStorageRemove(CACHE_KEY);safeStorageRemove(PREFERENCES_KEY);
+ void snapshotDatabase().then(db=>{if(db)try{const store=db.transaction('snapshots','readwrite').objectStore('snapshots');store.delete('current');store.delete('prices')}catch{}});
 }
 
 function loadSession(){try{return JSON.parse(safeStorageGet(SESSION_KEY)||'null')}catch{return null}}
@@ -334,7 +349,8 @@ async function signOut(){
 
 async function rest(path,options={},retry=true){
  if(!session?.access_token)throw new Error('No hay sesión iniciada');
- if(state.readonly&&options.method&&options.method!=='GET')throw new Error('Esta cartera es de solo lectura.');
+ const readRpc=['rpc/list_portfolio_viewers_v1','rpc/get_owned_data_status_v1','rpc/read_portfolio_fast_v1'].includes(path.split('?')[0]);
+ if(state.readonly&&options.method&&options.method!=='GET'&&!readRpc)throw new Error('Esta cartera es de solo lectura.');
  const requestUser=session.user?.id,requestEpoch=sessionEpoch;
  const headers={'apikey':SUPABASE_KEY,'Authorization':`Bearer ${session.access_token}`,'Content-Type':'application/json',...(options.headers||{})};
  const res=await fetchWithTimeout(`${SUPABASE_URL}/rest/v1/${path}`,{...options,headers});
@@ -342,7 +358,6 @@ async function rest(path,options={},retry=true){
  if(res.status===401&&retry){await refreshSession();return rest(path,options,false)}
  const text=await res.text();if(session?.user?.id!==requestUser||sessionEpoch!==requestEpoch)throw new Error('La sesión cambió durante la solicitud');let data=null;try{data=text?JSON.parse(text):null}catch{data=text}
  if(!res.ok){const msg=data?.message||data?.hint||data?.details||`HTTP ${res.status}`;throw new Error(msg)}
- const readRpc=['rpc/list_portfolio_viewers_v1','rpc/get_owned_data_status_v1'].includes(path.split('?')[0]);
  if(options.method&&options.method!=='GET'&&!readRpc)serverMutationRevision++;return data;
 }
 const select=(table,query='')=>rest(`${table}${query?'?'+query:''}`);
@@ -458,17 +473,25 @@ function nextRecurringDate(rule,after=todayISO()){
 }
 function recurrenceLabel(months){return({1:'Mensual',2:'Cada 2 meses',3:'Trimestral',6:'Semestral',12:'Anual'})[Number(months)]||`Cada ${Number(months)||1} meses`}
 function expandRecurringRules(rules,navRows,listingPriceRows){
+ if(!rules?.some(rule=>rule.active!==false)){const stats={};for(const rule of rules||[])stats[rule.id]={executed:0,pending:0,lastDate:null,nextDate:nextRecurringDate(rule),pendingReason:null};return{operations:[],stats}}
+
  const fundSeries={},listingSeries={};for(const n of navRows||[]){(fundSeries[n.isin]??=[]).push({nav_date:n.nav_date,nav:+n.nav,currency:String(n.currency||'EUR').toUpperCase(),isApproximate:false})}for(const r of listingPriceRows||[]){if(r.is_approximate===true)continue;(listingSeries[r.provider_symbol]??=[]).push({nav_date:r.price_date,nav:+r.price,currency:String(r.currency||'EUR').toUpperCase(),isApproximate:false})}for(const k of Object.keys(fundSeries))fundSeries[k]=normalizeSeries(fundSeries[k]);for(const k of Object.keys(listingSeries))listingSeries[k]=normalizeSeries(listingSeries[k]);
  const operations=[],stats={};for(const rule of rules||[]){const stat={executed:0,pending:0,lastDate:null,nextDate:nextRecurringDate(rule),pendingReason:null};stats[rule.id]=stat;if(rule.active===false)continue;const listingSymbol=canonicalListingSymbol(rule.isin,rule.listing_symbol||null),series=listingSymbol?(listingSeries[listingSymbol]||[]):(fundSeries[rule.isin]||[]);for(const scheduledDate of recurringDates(rule)){const row=firstRowOnOrAfter(series,scheduledDate,14);if(!row){stat.pending++;stat.pendingReason='price_unavailable';continue}if(String(row.currency||'EUR').toUpperCase()!=='EUR'){stat.pending++;stat.pendingReason='currency_not_eur';continue}const amount=Number(rule.amount),nav=Number(row.nav),shares=amount/nav;if(!(amount>0&&nav>0&&shares>0)){stat.pending++;stat.pendingReason='invalid_data';continue}operations.push({id:`recurring:${rule.id}:${scheduledDate}`,account_id:rule.account_id,isin:rule.isin,listing_symbol:listingSymbol,operation_type:'contribution',operation_date:row.nav_date,request_date:scheduledDate,execution_date:row.nav_date,amount,shares_delta:shares,nav,fees:0,external_cashflow:amount,status:'completed',validation_status:'recurring_exact_nav',reference_nav:nav,reference_nav_date:row.nav_date,nav_difference_pct:0,input_consistency_pct:0,execution_confirmed:false,transfer_id:null,notes:JSON.stringify({mi_cartera:{recurring_rule_id:rule.id,scheduled_date:scheduledDate}}),created_at:`${scheduledDate}T00:00:00Z`,updated_at:rule.updated_at||rule.created_at});stat.executed++;stat.lastDate=scheduledDate} }
  return{operations,stats};
 }
 function mapRecurringRules(rules,accounts,stats){const accountMap=Object.fromEntries((accounts||[]).map(a=>[a.id,a]));return (rules||[]).map(r=>{const acc=accountMap[r.account_id],s=stats?.[r.id]||{};return{id:r.id,accountId:r.account_id,type:'Recurrente',operationType:'recurring',date:r.start_date,isin:r.isin,listingSymbol:r.listing_symbol||null,entity:CODE_TO_ENTITY[acc?.institution_code]||acc?.institution_code||'—',amount:+r.amount||0,dayOfMonth:+r.day_of_month||1,intervalMonths:+r.interval_months||1,startDate:r.start_date,endDate:r.end_date||null,active:r.active!==false,executedCount:+s.executed||0,pendingCount:+s.pending||0,pendingReason:s.pendingReason||null,lastDate:s.lastDate||null,nextDate:s.nextDate||null,status:s.pending>0?'pending':(r.active===false?'paused':'active')}}).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')))}
+let savedPriceSeries=null;
+function priceSeriesFor(navRows=[],listingPriceRows=[]){
+ if(savedPriceSeries?.navRows===navRows&&savedPriceSeries?.listingPriceRows===listingPriceRows)return savedPriceSeries.value;
+ const byIsin={};for(const n of navRows){(byIsin[n.isin]??=[]).push({nav_date:n.nav_date,nav:+n.nav,currency:n.currency,source:n.source,fetched_at:n.fetched_at,isApproximate:false,proxySymbol:null,calibrationFactor:null,approximationMethod:null,calibrationDate:null})}for(const k of Object.keys(byIsin))byIsin[k]=normalizeSeries(byIsin[k]);
+ const byListing={};for(const r of listingPriceRows){(byListing[r.provider_symbol]??=[]).push({nav_date:r.price_date,nav:+r.price,currency:r.currency,source:r.source,fetched_at:r.fetched_at,isApproximate:r.is_approximate===true,proxySymbol:r.proxy_symbol||null,calibrationFactor:r.calibration_factor==null?null:+r.calibration_factor,approximationMethod:r.approximation_method||null,calibrationDate:r.calibration_date||null})}for(const k of Object.keys(byListing))byListing[k]=normalizeSeries(byListing[k]);
+ const value={byIsin,byListing};savedPriceSeries={navRows,listingPriceRows,value};return value;
+}
 function buildPositions(operations,accounts,funds,navRows,listingPriceRows=[]){
  const calculationIssues=[];
  const accountMap=Object.fromEntries(accounts.map(a=>[a.id,a]));
  const fundMap=Object.fromEntries(funds.map(f=>[f.isin,f]));
- const byIsin={};for(const n of navRows){(byIsin[n.isin]??=[]).push({nav_date:n.nav_date,nav:+n.nav,currency:n.currency,source:n.source,fetched_at:n.fetched_at,isApproximate:false,proxySymbol:null,calibrationFactor:null,approximationMethod:null,calibrationDate:null})}for(const k of Object.keys(byIsin))byIsin[k]=normalizeSeries(byIsin[k]);
- const byListing={};for(const r of listingPriceRows){(byListing[r.provider_symbol]??=[]).push({nav_date:r.price_date,nav:+r.price,currency:r.currency,source:r.source,fetched_at:r.fetched_at,isApproximate:r.is_approximate===true,proxySymbol:r.proxy_symbol||null,calibrationFactor:r.calibration_factor==null?null:+r.calibration_factor,approximationMethod:r.approximation_method||null,calibrationDate:r.calibration_date||null})}for(const k of Object.keys(byListing))byListing[k]=normalizeSeries(byListing[k]);
+ const {byIsin,byListing}=priceSeriesFor(navRows,listingPriceRows);
  navHistory=byIsin;listingHistory=byListing;
  const groups=new Map();
  const completed=operations.filter(o=>o.status==='completed'&&o.shares_delta!==null).sort((a,b)=>String(oDate(a)).localeCompare(String(oDate(b)))||String(a.created_at||'').localeCompare(String(b.created_at||'')));
@@ -535,10 +558,11 @@ function renderPortfolioSelector(){
  const rows=(state.portfolios||[]).filter(p=>p.active!==false);sel.innerHTML=rows.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
  if(state.activePortfolioId)sel.value=state.activePortfolioId;sel.disabled=rows.length<2;
 }
-function applyActivePortfolio(){
+function applyActivePortfolio(reuseCalculations=false){
  if(!cloudSnapshot)return false;
  const portfolioId=state.activePortfolioId,accounts=(cloudSnapshot.accounts||[]).filter(a=>a.portfolio_id===portfolioId&&a.active!==false),accountIds=new Set(accounts.map(a=>a.id));
  const ops=(cloudSnapshot.ops||[]).filter(o=>accountIds.has(o.account_id)),transfers=(cloudSnapshot.transfers||[]).filter(t=>accountIds.has(t.from_account_id)&&accountIds.has(t.to_account_id)),recurringRules=(cloudSnapshot.recurringRules||[]).filter(r=>r.portfolio_id===portfolioId&&accountIds.has(r.account_id));
+ if(reuseCalculations){cloudAccounts=accounts;updateAccessMode();saveCache();renderAll();return true}
  const recurring=expandRecurringRules(recurringRules,cloudSnapshot.navs||[],cloudSnapshot.listingPrices||[]),calculationOps=[...ops,...recurring.operations];
  cloudAccounts=accounts;
  state.positions=buildPositions(calculationOps,accounts,cloudSnapshot.funds||[],cloudSnapshot.navs||[],cloudSnapshot.listingPrices||[]);
@@ -592,9 +616,11 @@ async function selectForValues(table,column,values,query=CLOUD_QUERIES[table]){
 async function readPriceChanges(table,column,values,previous,keys,incremental,forceFull=[]){
  const ids=[...new Set(values)].filter(Boolean);if(!incremental||!previous?.length)return selectForValues(table,column,ids);
  const requested=new Set(ids),groups=new Map();for(const row of previous)if(requested.has(row[column])){if(!groups.has(row[column]))groups.set(row[column],[]);groups.get(row[column]).push(row)}
- const full=[],changed=[],forced=new Set(forceFull);let watermark=null;
- for(const id of ids){const rows=groups.get(id);if(forced.has(id)||!rows?.length||rows.some(row=>!/^\d{4}-\d{2}-\d{2}T/.test(String(row.fetched_at||'')))){full.push(id);continue}const latest=rows.reduce((max,row)=>row.fetched_at>max?row.fetched_at:max,'');changed.push(id);if(!watermark||latest<watermark)watermark=latest}
- const batches=await Promise.all([selectForValues(table,column,full),selectForValues(table,column,changed,CLOUD_QUERIES[table]+`&fetched_at=gte.${encodeURIComponent(watermark||'')}`)]),updates=batches.flat();
+ const full=[],changed=[],forced=new Set(forceFull);
+ for(const id of ids){const rows=groups.get(id);if(forced.has(id)||!rows?.length||rows.some(row=>!/^\d{4}-\d{2}-\d{2}T/.test(String(row.fetched_at||'')))){full.push(id);continue}const latest=rows.reduce((max,row)=>row.fetched_at>max?row.fetched_at:max,'');changed.push({id,latest})}
+ const updates=await selectForValues(table,column,full);let cursor=0;
+ async function readChanged(){while(cursor<changed.length){const {id,latest}=changed[cursor++];updates.push(...await selectForValues(table,column,[id],CLOUD_QUERIES[table]+`&fetched_at=gte.${encodeURIComponent(latest)}`))}}
+ await Promise.all(Array.from({length:Math.min(3,changed.length)},readChanged));
  const reloaded=new Set(full),merged=new Map();for(const row of previous)if(requested.has(row[column])&&!reloaded.has(row[column]))merged.set(JSON.stringify(keys.map(key=>row[key])),row);for(const row of updates)merged.set(JSON.stringify(keys.map(key=>row[key])),row);
  return [...merged.values()];
 }
@@ -613,13 +639,11 @@ async function syncFromCloudTask(showNotice=false,options={}){
  const task={userId,epoch:sessionEpoch,incremental:!!options.priceChanges,revision:serverMutationRevision,promise:null};activeCloudSync=task;task.promise=performCloudSync(userId,sessionEpoch,options,task.revision);
  try{const ok=await task.promise;if(session?.user?.id===userId&&task.revision!==serverMutationRevision){if(activeCloudSync===task)activeCloudSync=null;return syncFromCloud(showNotice,options)}if(ok&&showNotice)alert('Datos sincronizados con Supabase.');return ok}finally{if(activeCloudSync===task)activeCloudSync=null}
 }
-async function performCloudSync(userId,epoch,options,revision){
- setCloudStatus('Sincronizando…');
- try{
+async function readStandardCloudSnapshot(previous,options){
   const [portfolios,accounts,ops,transfers,recurringRules]=await Promise.all(['portfolios','accounts','operations','transfers','recurring_operations'].map(table=>selectPaged(table,CLOUD_QUERIES[table])));
-  if(!portfolios.length)throw new Error('NO_ACCESS: Esta cuenta no tiene carteras asignadas. Pide al propietario que comparta una cartera contigo.');
+
   const isins=[...new Set([...ops.map(o=>o.isin),...recurringRules.map(r=>r.isin),...transfers.flatMap(t=>[t.from_isin,t.to_isin])])].filter(Boolean);
-  const previous=cloudSnapshot,incremental=!!options.priceChanges&&!!previous;
+  const incremental=!!options.priceChanges&&!!previous;
   const [funds,listings,sourceStates]=await Promise.all([selectForValues('funds','isin',isins),selectForValues('instrument_listings','isin',isins),selectForValues('instrument_source_state','isin',isins,'select=instrument_key,isin,listing_symbol,source_name,status,error,initialized,cursor_date,metadata,diagnostics,last_attempt_at,last_success_at,fallback_at&order=instrument_key.asc')]);
   const replacedFundIsins=sourceStates.filter(x=>!x.listing_symbol&&x.source_name?.startsWith('Kutxabank')&&x.last_success_at!==previous?.sourceStates?.find(y=>y.instrument_key===x.instrument_key)?.last_success_at).map(x=>x.isin);
   const [navs,listingPrices,storedFx]=await Promise.all([
@@ -627,18 +651,31 @@ async function performCloudSync(userId,epoch,options,revision){
    readPriceChanges('listing_prices','provider_symbol',listings.map(l=>l.provider_symbol),previous?.listingPrices,['provider_symbol','price_date'],incremental),
    selectPaged('market_fx_rates','select=currency,rate_date,rate,source&order=currency.asc,rate_date.asc')
   ]);
+ return {portfolios,accounts,ops,transfers,recurringRules,funds,listings,sourceStates,navs,listingPrices,storedFx};
+}
+async function performCloudSync(userId,epoch,options,revision){
+ setCloudStatus('Sincronizando…');
+ try{
+  const previous=cloudSnapshot;
+  const snapshot=options.priceChanges&&typeof readFastCloudSnapshot==='function'?await readFastCloudSnapshot(previous):null;
+  const {portfolios,accounts,ops,transfers,recurringRules,funds,listings,sourceStates,navs,listingPrices,storedFx,fastManifest}=snapshot||await readStandardCloudSnapshot(previous,options);
+  if(!portfolios.length)throw new Error('NO_ACCESS: Esta cuenta no tiene carteras asignadas. Pide al propietario que comparta una cartera contigo.');
   const nextFunds={},nextListings={};for(const f of funds)nextFunds[f.isin]={...f,theme:f.theme&&f.theme!=='Sin clasificar'?f.theme:f.category||'Sin clasificar'};for(const l of listings)nextListings[l.provider_symbol]=l;
   for(const n of navs){const f=nextFunds[n.isin];if(f&&(!f.latest_nav||n.nav_date>f.latest_nav.date))f.latest_nav={date:n.nav_date,nav:+n.nav,currency:n.currency||f.currency||'EUR',source:n.source||'Supabase',fetched_at:n.fetched_at||null}}
-  const dates=[...navs.map(n=>n.nav_date),...listingPrices.map(p=>p.price_date),...ops.flatMap(o=>[o.operation_date,o.execution_date,o.reference_nav_date]),...recurringRules.map(r=>r.start_date)],firstDate=dates.reduce((oldest,date)=>/^\d{4}-\d{2}-\d{2}$/.test(String(date))&&(!oldest||date<oldest)?date:oldest,null);
+
   const nextFx={fxRates:{...state.fxRates},fxHistory:{...state.fxHistory}};
   const fxGroups=new Map();for(const x of storedFx){if(!fxGroups.has(x.currency))fxGroups.set(x.currency,[]);fxGroups.get(x.currency).push({date:x.rate_date,rate:Number(x.rate),source:x.source})}for(const [currency,rows] of fxGroups){nextFx.fxHistory[currency]=rows;const latest=rows.at(-1);nextFx.fxRates[currency]={rate:latest.rate,date:latest.date,source:latest.source}}
   nextFx.fxRates.EUR={rate:1,date:todayISO(),source:'EUR'};
   if(session?.user?.id!==userId||sessionEpoch!==epoch||revision!==serverMutationRevision)return false;
   const remembered=safeStorageGet(ACTIVE_PORTFOLIO_KEY),wanted=portfolios.find(p=>p.id===remembered)||portfolios.find(p=>p.id===state.activePortfolioId)||portfolios.find(p=>p.is_default)||portfolios[0];
+  const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+  const fundsForState=same(nextFunds,state.funds)?state.funds:nextFunds,listingsForState=same(nextListings,state.listings)?state.listings:nextListings;
+  const fxRatesForState=same(nextFx.fxRates,state.fxRates)?state.fxRates:nextFx.fxRates,fxHistoryForState=same(nextFx.fxHistory,state.fxHistory)?state.fxHistory:nextFx.fxHistory;
+  const reuseCalculations=previous?.calculationDay===todayISO()&&wanted.id===state.activePortfolioId&&navs===previous.navs&&listingPrices===previous.listingPrices&&fundsForState===state.funds&&listingsForState===state.listings&&fxRatesForState===state.fxRates&&fxHistoryForState===state.fxHistory&&['accounts','ops','transfers','recurringRules'].every(key=>same(previous[key],({accounts,ops,transfers,recurringRules})[key]));
   const prior={state:{...state},snapshot:cloudSnapshot,accounts:cloudAccounts,navs:navHistory,prices:listingHistory};
   try{
-  state.portfolios=portfolios;state.activePortfolioId=wanted.id;state.funds=nextFunds;state.listings=nextListings;state.fxRates=nextFx.fxRates;state.fxHistory=nextFx.fxHistory;
-  state.sourceStates=sourceStates;cloudSnapshot={accounts,ops,transfers,recurringRules,funds,navs,listings,listingPrices,sourceStates};state.lastNavUpdate=[...navs.map(n=>n.nav_date),...listingPrices.map(p=>p.price_date)].reduce((latest,date)=>date&&(!latest||date>latest)?date:latest,null);state.cloudSyncedAt=new Date().toISOString();applyActivePortfolio();safeStorageSet(ACTIVE_PORTFOLIO_KEY,wanted.id);
+  state.portfolios=same(portfolios,state.portfolios)?state.portfolios:portfolios;state.activePortfolioId=wanted.id;state.funds=fundsForState;state.listings=listingsForState;state.fxRates=fxRatesForState;state.fxHistory=fxHistoryForState;
+  state.sourceStates=sourceStates;cloudSnapshot={accounts:reuseCalculations?previous.accounts:accounts,ops:reuseCalculations?previous.ops:ops,transfers:reuseCalculations?previous.transfers:transfers,recurringRules:reuseCalculations?previous.recurringRules:recurringRules,funds:reuseCalculations?previous.funds:funds,navs,listings:reuseCalculations?previous.listings:listings,listingPrices,sourceStates,calculationDay:todayISO(),...(fastManifest?{fastManifest}:{})};state.lastNavUpdate=[...navs.map(n=>n.nav_date),...listingPrices.map(p=>p.price_date)].reduce((latest,date)=>date&&(!latest||date>latest)?date:latest,null);state.cloudSyncedAt=new Date().toISOString();applyActivePortfolio(reuseCalculations);safeStorageSet(ACTIVE_PORTFOLIO_KEY,wanted.id);
   }catch(error){state=prior.state;cloudSnapshot=prior.snapshot;cloudAccounts=prior.accounts;navHistory=prior.navs;listingHistory=prior.prices;document.body.dataset.readonly=state.readonly?'true':'false';invalidateCalculations();throw error}
   if(cacheWriteTimer!==null){clearTimeout(cacheWriteTimer);cacheWriteTimer=null}
   const cached=await persistPortfolioCache(userId,cacheWriteGeneration);

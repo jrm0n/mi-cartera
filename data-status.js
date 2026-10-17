@@ -5,7 +5,7 @@ function dataOwnedPortfolios(){return(state.portfolios||[]).filter(p=>p.active!=
 function dataPositionSnapshot(){
  const ids=new Set(dataOwnedPortfolios().map(p=>p.id)),snapshot=cloudSnapshot;
  if(!snapshot)return{accounts:[],positions:state.positions||[],ops:[],portfolios:dataOwnedPortfolios()};
- const inputs=[snapshot,snapshot.accounts,snapshot.accounts?.length,snapshot.ops,snapshot.ops?.length,snapshot.recurringRules,snapshot.navs,snapshot.listingPrices,state.listings,state.fxRates,session?.user?.id,[...ids].join('|'),dataToday()];
+ const inputs=[state.portfolios,snapshot.funds,snapshot.accounts,snapshot.accounts?.length,snapshot.ops,snapshot.ops?.length,snapshot.recurringRules,snapshot.navs,snapshot.listingPrices,state.listings,state.fxRates,session?.user?.id,[...ids].join('|'),dataToday()];
  if(dataPositionMemo&&inputs.every((value,index)=>value===dataPositionMemo.inputs[index]))return dataPositionMemo.value;
  const accounts=(snapshot.accounts||[]).filter(a=>a.active!==false&&ids.has(a.portfolio_id)),accountIds=new Set(accounts.map(a=>a.id));
  const ops=(snapshot.ops||[]).filter(o=>accountIds.has(o.account_id)),rules=(snapshot.recurringRules||[]).filter(r=>accountIds.has(r.account_id));
