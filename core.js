@@ -550,7 +550,8 @@ const CLOUD_QUERIES={
 };
 async function selectForValues(table,column,values,query=CLOUD_QUERIES[table]){
  const ids=[...new Set(values)].filter(Boolean),rows=[];
- for(let offset=0;offset<ids.length;offset+=100){const filter=encodeURIComponent(ids.slice(offset,offset+100).map(value=>JSON.stringify(String(value))).join(','));rows.push(...await selectPaged(table,`${query}&${column}=in.(${filter})`))}
+ const batchSize=['fund_navs','listing_prices'].includes(table)?1:100;
+ for(let offset=0;offset<ids.length;offset+=batchSize){const filter=encodeURIComponent(ids.slice(offset,offset+batchSize).map(value=>JSON.stringify(String(value))).join(','));rows.push(...await selectPaged(table,`${query}&${column}=in.(${filter})`))}
  return rows;
 }
 async function readPriceChanges(table,column,values,previous,keys,incremental){
@@ -581,7 +582,7 @@ async function performCloudSync(userId,epoch,options,revision){
   if(!portfolios.length)throw new Error('NO_ACCESS: Esta cuenta no tiene carteras asignadas. Pide al propietario que comparta una cartera contigo.');
   const isins=[...new Set([...ops.map(o=>o.isin),...recurringRules.map(r=>r.isin),...transfers.flatMap(t=>[t.from_isin,t.to_isin])])].filter(Boolean);
   const previous=cloudSnapshot,incremental=!!options.priceChanges&&!!previous;
-  const [funds,listings,sourceStates]=await Promise.all([selectForValues('funds','isin',isins),selectForValues('instrument_listings','isin',isins),selectForValues('instrument_source_state','isin',isins,'select=instrument_key,isin,listing_symbol,source_name,status,error,initialized,cursor_date,diagnostics,last_attempt_at,last_success_at,fallback_at&order=instrument_key.asc')]);
+  const [funds,listings,sourceStates]=await Promise.all([selectForValues('funds','isin',isins),selectForValues('instrument_listings','isin',isins),selectForValues('instrument_source_state','isin',isins,'select=instrument_key,isin,listing_symbol,source_name,status,error,initialized,cursor_date,metadata,diagnostics,last_attempt_at,last_success_at,fallback_at&order=instrument_key.asc')]);
   const sourceChanged=sourceStates.some(x=>x.source_name?.startsWith('Kutxabank')&&x.last_success_at!==previous?.sourceStates?.find(y=>y.instrument_key===x.instrument_key)?.last_success_at);
   const navs=await readPriceChanges('fund_navs','isin',isins,previous?.navs,['isin','nav_date'],incremental&&!sourceChanged);
   const listingPrices=await readPriceChanges('listing_prices','provider_symbol',listings.map(l=>l.provider_symbol),previous?.listingPrices,['provider_symbol','price_date'],incremental);
