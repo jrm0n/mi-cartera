@@ -1,0 +1,187 @@
+MI CARTERA — VERSIÓN 0.16.5
+Fecha: 17 de octubre de 2026
+Resumen acumulado de los cambios realizados durante la jornada
+
+1. DESCARGAS PROGRAMADAS Y SINCRONIZACIÓN
+
+Se han configurado las descargas de cotizaciones en Supabase para las 06:00
+y las 18:00. La descarga del servidor y la sincronización de la app son
+procesos distintos: la primera obtiene y guarda cotizaciones; la segunda
+lee los datos disponibles en Supabase para mostrarlos en la aplicación.
+
+El botón Sincronizar permite cargar los datos que se han recuperado en el
+servidor, incluidos los históricos. No equivale a consultar de nuevo todas
+las fuentes públicas. Descargar cotizaciones solicita la recuperación de
+precios y puede atender históricos pendientes aunque el último VL esté al día.
+
+2. FECHA Y TURNO EN INICIO
+
+Inicio muestra únicamente la fecha y el turno, por ejemplo:
+17/10/2026 · 06:00
+
+El turno se deduce de la última descarga correcta registrada entre los
+instrumentos de la cartera, usando el horario Europe/Madrid:
+- De 06:00 a 17:59: turno 06:00.
+- Desde las 18:00: turno 18:00.
+- Antes de las 06:00: turno 18:00 del día anterior.
+
+Esta indicación no certifica que todos los fondos hayan terminado de
+actualizarse. Una descarga manual también se clasifica en su franja horaria.
+Si no hay hora de descarga registrada, se muestra la fecha disponible sin
+inventar un turno.
+
+3. RECUPERACIÓN DE HISTÓRICOS ANTERIORES A LA COMPRA
+
+La recuperación busca las cotizaciones anteriores disponibles del instrumento,
+sin limitarse a la fecha de entrada en la cartera. Los datos se incorporan
+por bloques y el proceso continúa mediante la cola del servidor.
+
+Se ha corregido el contraste de fechas que bloqueaba Pictet cuando las
+cotizaciones utilizadas para validar la fuente abarcaban más de un año.
+También se ha corregido el caso de fondos cuyo catálogo proporciona nombre
+y último VL, pero no el identificador interno requerido por Bankinter para
+consultar su histórico.
+
+Últimos estados confirmados mediante los resultados facilitados de Supabase:
+
+- IE000QAZP7L2: available / done; 282 cotizaciones del 21/08/2025
+  al 15/10/2026. Fuente histórica: Financial Times / Morningstar.
+- IE0006TUI4G7, Polar Capital Smart Energy: available / done;
+  1.203 cotizaciones del 01/10/2021 al 15/10/2026.
+  Fuente histórica final: MarketScreener.
+- LU1223083087, Schroder Oro: available / done; 2.593 cotizaciones
+  del 29/06/2016 al 16/10/2026. Financial Times / Morningstar.
+- LU2286300988, Allianz: available / done; 1.380 cotizaciones
+  del 09/02/2021 al 16/10/2026. Financial Times / Morningstar.
+- LU0270816068, Schroder Taiwán: seguía pending, sin error, con
+  2.837 cotizaciones del 06/10/2014 al 16/10/2026.
+- LU0366536711, Pictet: seguía pending, sin error, con
+  3.848 cotizaciones del 17/06/2008 al 16/10/2026.
+
+Estos son los últimos estados comprobados, no una lectura en tiempo real.
+No se da por terminada la recuperación de Taiwán ni de Pictet sin una
+consulta posterior que lo confirme.
+
+4. FUENTES ALTERNATIVAS Y CONTROLES
+
+Se mantiene la fuente principal compatible con cada instrumento. Para fondos
+compatibles se amplía Financial Times como alternativa por ISIN y divisa
+exactos. Yahoo puede utilizarse como alternativa cuando supera los controles
+de identificación y cobertura. Smart Energy conserva una cadena específica
+con Investing.com y MarketScreener.
+
+No se seleccionan clases por parecido del nombre. Las alternativas históricas
+exigen contrastes de fechas y VL; en los casos configurados se requieren al
+menos tres coincidencias con una diferencia máxima del 0,1 %. Para el alta
+desde catálogo también se contrasta el VL de la misma fecha cuando procede.
+
+El cambio de fuente conserva lo descargado y el proveedor real de cada bloque.
+Una cotización antigua no sustituye al precio reciente de la posición.
+El HTTP 403 registrado como motivo de alternativa de Smart Energy explica
+el cambio de proveedor; no es un error pendiente de la recuperación terminada.
+
+Ninguna fuente garantiza cubrir todos los ISIN ni todos los días de su vida.
+Los adaptadores específicos de Smart Energy no son lectores universales.
+El estado available aplica el criterio existente de proximidad al inicio
+(14 días); no certifica por sí solo ausencia de huecos entre sesiones.
+
+5. ALTA DE FONDOS E HISTÓRICOS AUTOMÁTICOS
+
+Se ha corregido el bloqueo circular que impedía guardar una posición porque
+no existía un precio y, a la vez, esperaba a que existiera una posición para
+descargarlo. Cuando el catálogo devuelve un último VL válido, el alta puede
+utilizarlo sin exigir un precio adicional introducido a mano.
+
+El automatismo instalado en Supabase solicita el histórico al guardar una
+operación completada, incluidas bases y traspasos confirmados. Las operaciones
+pendientes se encolan al pasar a completadas. Elegir un ISIN sin guardar la
+operación no inicia la recuperación.
+
+La cola procesa el trabajo en sus siguientes ejecuciones, sin esperar al
+turno de las 06:00 o las 18:00. Una segunda compra no duplica el trabajo
+pendiente ni reinicia uno en ejecución. Los históricos marcados como completos
+no se vuelven a recuperar desde cero.
+
+Si se agotan las fuentes compatibles, se conservan los datos existentes y
+el error para revisión. Automatizar la solicitud no garantiza su recuperación.
+La descarga automática completa de un nuevo fondo queda pendiente de
+verificarse en un alta real posterior a la instalación del automatismo.
+
+Por petición del usuario, IE00B3VXGD32, Polar Biotecnología, queda excluido
+de nuevos intentos de recuperación histórica. Se conservan sus operaciones
+y precios para mantener el registro del traspaso.
+
+6. BLOQUEO DURANTE LA CARGA Y LAS ACTUALIZACIONES
+
+Se incorpora una barra animada con los mensajes Cargando datos… o
+Actualizando datos… en el arranque, la sincronización y la descarga manual.
+Durante estas tareas se bloquean navegación, botones, teclado y formularios.
+
+El bloqueo permanece hasta que terminan todas las tareas que lo requieren.
+Una tarea interna no desbloquea la pantalla mientras otra sigue trabajando.
+Si ocurre un error, se libera el bloqueo para permitir reintentar.
+
+Si no hay datos locales y falla la carga inicial, se muestra un aviso de
+reintento sin presentar una cartera vacía como si fuera un resultado válido.
+Si existe una copia local válida y falla la sincronización, puede mostrarse
+esa copia con el aviso correspondiente.
+
+7. PRIVACIDAD DE CIFRAS MEDIANTE EL OJO
+
+Se añade un botón de ojo en la parte superior derecha, junto al selector
+de modo claro/oscuro. Al activarlo, los importes, VL, participaciones y
+porcentajes se sustituyen visualmente por rayas de longitud fija: ———.
+
+Se ocultan los signos y la indicación de color de las cifras enmascaradas.
+Los gráficos y sus ventanas emergentes quedan ocultos para evitar mostrar
+valores a través de los ejes, las curvas o sus detalles.
+Los nombres, ISIN, fechas y controles de periodo siguen disponibles.
+
+La preferencia se recuerda en el navegador y se comparte entre sus pestañas.
+Las cifras que llegan después de sincronizar y los detalles abiertos durante
+el uso también reciben el ocultado.
+
+Los campos numéricos de los formularios conservan sus valores y quedan
+ocultos y sin edición mientras está activa la privacidad. Para introducir
+cifras, desactiva el ojo antes de abrir el formulario.
+
+El ocultado es visual: no modifica operaciones, cálculos ni datos guardados.
+La copia de texto seleccionado queda bloqueada mientras se ocultan las cifras.
+Los archivos exportados conservan sus datos originales; el ojo no los anonimiza.
+
+8. INSTALACIÓN DE LA VERSIÓN 0.16.5
+
+Subir los 10 archivos de la carpeta github del ZIP 0.16.5 a la raíz del
+repositorio, sustituyendo los existentes y añadiendo los dos archivos nuevos:
+
+index.html
+app.js
+analysis.js
+core.js
+market.js
+version.js
+version.json
+sw.js
+privacy.js      (nuevo)
+privacy.css     (nuevo)
+
+Guardar los cambios, esperar a la publicación, cerrar completamente la app
+y abrirla de nuevo. La versión visible debe ser 0.16.5.
+Este TXT puede añadirse también al repositorio como registro de la versión.
+
+La actualización visual 0.16.5 no requiere SQL adicional ni cambios en Supabase.
+Los cambios históricos y el automatismo requieren la instalación previa ya
+realizada durante la jornada: resolve-fund HISTORICO-11 y
+033-automatizar-altas.txt. No es necesario repetirlos para instalar 0.16.5.
+El ZIP visual 0.16.5 no sustituye ni incluye esa instalación del servidor.
+
+9. VALIDACIÓN Y COMPROBACIÓN FINAL
+
+La actualización de interfaz supera 30 comprobaciones funcionales: arranque
+con y sin copia, errores de conexión, bloqueo de tareas simultáneas, ocultado
+tras nuevas lecturas, restauración de cifras, preferencia guardada y
+conservación de los valores de los formularios y los eventos de los botones.
+
+Las recuperaciones indicadas como terminadas se comprobaron con los resultados
+de Supabase facilitados por el usuario. La comprobación visual final del ojo
+y de la barra de carga queda pendiente en la app instalada.
