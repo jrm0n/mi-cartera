@@ -109,7 +109,7 @@ async function loadDataStatus(){
 }
 async function reloadDataStatus(sync=false){
  if(dataStatusLoading)return;
- if(sync){const ok=await syncFromCloud(false);if(!ok){dataStatusError='No se pudo sincronizar. Se conserva la última lectura disponible.';renderDataStatus();return}}
+ if(sync){const ok=await syncFromCloud(false,{priceChanges:true});if(!ok){dataStatusError='No se pudo sincronizar. Se conserva la última lectura disponible.';renderDataStatus();return}}
  await loadDataStatus();
 }
 async function retryDataStatusInstrument(key){

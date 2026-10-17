@@ -1,0 +1,99 @@
+MI CARTERA — VERSIÓN 0.16.7
+Fecha: 17 de octubre de 2026
+
+ARRANQUE CON LA ÚLTIMA CARTERA GUARDADA
+
+Al abrir la aplicación se muestra la última copia guardada en ese navegador.
+No se consulta Supabase para renovar la cartera, las cotizaciones o los históricos.
+La sesión local se lee para identificar la copia del usuario, sin renovarla
+automáticamente durante el arranque habitual.
+
+La cartera queda visible y utilizable con sus datos anteriores, y el ojo
+permanece activo: las cifras se muestran como rayas hasta pulsarlo.
+El estado indica que se está mostrando la última copia guardada.
+Las fechas y la hora de esa copia no se sustituyen por la hora de apertura.
+
+La aplicación no se reduce a un botón cuando existe una copia válida.
+Solo si todavía no hay una copia en ese navegador aparece una pantalla
+para realizar la primera carga con Actualizar. Si no hay sesión guardada,
+se solicita el acceso. Tras iniciar sesión se intenta abrir la copia local,
+sin descargar automáticamente la cartera.
+
+El cierre de sesión elimina la copia según el comportamiento existente.
+La eliminación de los datos del navegador también puede dejar la app sin copia.
+
+ACTUALIZACIÓN MANUAL
+
+El botón de Inicio pasa a llamarse Actualizar. Lee los datos que Supabase
+tiene guardados; no consulta por sí mismo todas las fuentes públicas.
+Las descargas programadas del servidor continúan funcionando independientemente
+de que la aplicación esté abierta. No se cambian sus horarios.
+
+Al pulsar Actualizar se valida o renueva la sesión cuando sea necesario.
+Durante la lectura permanece el bloqueo con barra animada. Dos pulsaciones
+seguidas no duplican la carga. Si falla la conexión, se mantiene la última
+copia disponible y se indica que los datos no se han renovado.
+
+OPTIMIZACIÓN DE LAS LECTURAS
+
+1. Actualizar reutiliza el histórico local y solicita los registros con fecha
+   de descarga posterior o igual al punto de control guardado.
+   Se fusionan por instrumento y fecha, evitando duplicados.
+2. El criterio se basa en fetched_at, no en la fecha de cotización. Por tanto,
+   también incorpora cotizaciones antiguas recuperadas y valores corregidos.
+3. Los fondos nuevos o las copias sin un punto de control válido se consultan
+   completos. No se recorta el histórico disponible para acelerar la lectura.
+4. Los instrumentos se consultan con hasta tres tareas simultáneas por lote,
+   manteniendo la paginación de cada instrumento.
+5. Los históricos de fondos, precios de cotizaciones bursátiles y tipos de
+   cambio se leen en paralelo cuando sus identificadores ya están disponibles.
+6. Si cambia el registro de la fuente Kutxabank, se relee por completo solo
+   el fondo afectado. Esa sustitución no obliga a releer los demás fondos y
+   elimina de la copia las filas antiguas ausentes de la serie sustituida.
+7. Consultar los estados de Gestión ya no se interpreta como una escritura
+   de cartera que pueda forzar otra sincronización.
+
+Se mantiene la lectura completa de operaciones, carteras y metadatos necesarios
+para calcular la cartera con coherencia. Una primera lectura sin copia seguirá
+descargando el histórico completo. Si una fuente reescribe muchas cotizaciones,
+la consulta de cambios también puede devolver muchas filas.
+
+La lectura completa existente en Análisis → Datos y versión → Sincronizar ahora
+se conserva como opción de relectura desde el servidor. Puede tardar más que
+Actualizar. Permite reconstruir la copia si se han realizado modificaciones
+manuales en Supabase, como borrar cotizaciones o editar filas sin actualizar
+su fecha fetched_at.
+
+GUARDADO LOCAL
+
+La actualización espera a que finalice el guardado de la copia antes de darse
+por terminada. Se evita una segunda escritura pendiente del mismo resultado.
+Si no se puede guardar la copia, se muestra un aviso en lugar de dar por
+garantizado que estará disponible al reabrir.
+
+INSTALACIÓN DESDE 0.16.6
+
+1. Subir los 14 archivos de la carpeta github a la raíz del repositorio,
+   sustituyendo los existentes y añadiendo RELEASE_NOTES_0.16.7.txt.
+2. Esperar a la publicación, cerrar la aplicación y volver a abrirla.
+3. Comprobar que aparece la versión 0.16.7, con la cartera anterior y el ojo activo.
+4. Pulsar Actualizar cuando se quieran leer los datos nuevos de Supabase.
+
+No requiere SQL ni volver a publicar funciones de Supabase.
+Se conserva el Estado de datos de 0.16.6 y su instalación del servidor.
+
+VALIDACIÓN
+
+- 49 pruebas de lógica e interfaz superadas, incluidos arranque desde copia,
+  actualización manual, errores, privacidad, lecturas paralelas y fusión de
+  cotizaciones antiguas, nuevas y corregidas.
+- Prueba completa en Chromium con respuestas de servidor simuladas: al reabrir
+  se muestra la copia local sin consultas de cartera a Supabase; la consulta
+  nueva solo ocurre al pulsar Actualizar.
+- En esa prueba, una primera lectura de 40 cotizaciones requirió una sola
+  fila de precios en la siguiente lectura incremental. Es un caso de prueba,
+  no una medición de la cartera del usuario ni de su conexión.
+- Revisión del arranque a 320, 390 y 1180 px, y de la cartera guardada en móvil.
+
+No se ha medido una reducción de segundos en el dispositivo del usuario.
+El tiempo real dependerá del volumen de cambios, de las fuentes y de la conexión.

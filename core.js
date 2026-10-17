@@ -289,10 +289,10 @@ function saveCache(){
  cacheWriteTimer=setTimeout(()=>{cacheWriteTimer=null;void persistPortfolioCache(userId,generation)},100);
 }
 async function persistPortfolioCache(userId=session?.user?.id,generation=cacheWriteGeneration){
- if(!userId||session?.user?.id!==userId||generation!==cacheWriteGeneration)return;
+ if(!userId||session?.user?.id!==userId||generation!==cacheWriteGeneration)return false;
  const record={cachedFor:userId,schemaVersion:DATA_SCHEMA_VERSION,state:{...state},cloudSnapshot,navHistory,listingHistory};
- try{const db=await snapshotDatabase();if(session?.user?.id!==userId||generation!==cacheWriteGeneration)return;if(db){await snapshotWrite(db,record);safeStorageRemove(CACHE_KEY)}else if(!safeStorageSet(CACHE_KEY,JSON.stringify(record)))throw new Error('No hay espacio disponible para la copia local')}
- catch(error){lastCacheRevision=-1;console.warn('Copia local',error);setCloudStatus('Datos cargados · no se pudo guardar la copia local','warn')}
+ try{const db=await snapshotDatabase();if(session?.user?.id!==userId||generation!==cacheWriteGeneration)return false;if(db){await snapshotWrite(db,record);safeStorageRemove(CACHE_KEY)}else if(!safeStorageSet(CACHE_KEY,JSON.stringify(record)))throw new Error('No hay espacio disponible para la copia local');return true}
+ catch(error){lastCacheRevision=-1;console.warn('Copia local',error);setCloudStatus('Datos cargados · no se pudo guardar la copia local','warn');return false}
 }
 function clearPortfolioCache(){
  cacheWriteGeneration++;lastCacheRevision=-1;lastCachedReport=null;if(cacheWriteTimer!==null)clearTimeout(cacheWriteTimer);cacheWriteTimer=null;safeStorageRemove(CACHE_KEY);safeStorageRemove(PREFERENCES_KEY);
@@ -341,7 +341,9 @@ async function rest(path,options={},retry=true){
  if(session?.user?.id!==requestUser||sessionEpoch!==requestEpoch)throw new Error('La sesión cambió durante la solicitud');
  if(res.status===401&&retry){await refreshSession();return rest(path,options,false)}
  const text=await res.text();if(session?.user?.id!==requestUser||sessionEpoch!==requestEpoch)throw new Error('La sesión cambió durante la solicitud');let data=null;try{data=text?JSON.parse(text):null}catch{data=text}
- if(!res.ok){const msg=data?.message||data?.hint||data?.details||`HTTP ${res.status}`;throw new Error(msg)}if(options.method&&options.method!=='GET'&&!path.startsWith('rpc/list_portfolio_viewers'))serverMutationRevision++;return data;
+ if(!res.ok){const msg=data?.message||data?.hint||data?.details||`HTTP ${res.status}`;throw new Error(msg)}
+ const readRpc=['rpc/list_portfolio_viewers_v1','rpc/get_owned_data_status_v1'].includes(path.split('?')[0]);
+ if(options.method&&options.method!=='GET'&&!readRpc)serverMutationRevision++;return data;
 }
 const select=(table,query='')=>rest(`${table}${query?'?'+query:''}`);
 async function selectPaged(table,query='',pageSize=1000,maxRows=50000){
@@ -579,18 +581,21 @@ const CLOUD_QUERIES={
  listing_prices:'select=provider_symbol,price_date,price,currency,source,fetched_at,is_approximate,proxy_symbol,calibration_factor,approximation_method,calibration_date&order=price_date.desc,provider_symbol.asc'
 };
 async function selectForValues(table,column,values,query=CLOUD_QUERIES[table]){
- const ids=[...new Set(values)].filter(Boolean),rows=[];
+ const ids=[...new Set(values)].filter(Boolean),chunks=[];
  const batchSize=['fund_navs','listing_prices'].includes(table)?1:100;
- for(let offset=0;offset<ids.length;offset+=batchSize){const filter=encodeURIComponent(ids.slice(offset,offset+batchSize).map(value=>JSON.stringify(String(value))).join(','));rows.push(...await selectPaged(table,`${query}&${column}=in.(${filter})`))}
- return rows;
+ for(let offset=0;offset<ids.length;offset+=batchSize)chunks.push(ids.slice(offset,offset+batchSize));
+ const results=new Array(chunks.length);let cursor=0;
+ async function worker(){while(cursor<chunks.length){const index=cursor++,filter=encodeURIComponent(chunks[index].map(value=>JSON.stringify(String(value))).join(','));results[index]=await selectPaged(table,`${query}&${column}=in.(${filter})`)}}
+ await Promise.all(Array.from({length:Math.min(3,chunks.length)},worker));
+ return results.flat();
 }
-async function readPriceChanges(table,column,values,previous,keys,incremental){
+async function readPriceChanges(table,column,values,previous,keys,incremental,forceFull=[]){
  const ids=[...new Set(values)].filter(Boolean);if(!incremental||!previous?.length)return selectForValues(table,column,ids);
  const requested=new Set(ids),groups=new Map();for(const row of previous)if(requested.has(row[column])){if(!groups.has(row[column]))groups.set(row[column],[]);groups.get(row[column]).push(row)}
- const full=[],changed=[];let watermark=null;
- for(const id of ids){const rows=groups.get(id);if(!rows?.length||rows.some(row=>!/^\d{4}-\d{2}-\d{2}T/.test(String(row.fetched_at||'')))){full.push(id);continue}const latest=rows.reduce((max,row)=>row.fetched_at>max?row.fetched_at:max,'');changed.push(id);if(!watermark||latest<watermark)watermark=latest}
- const updates=[...await selectForValues(table,column,full),...await selectForValues(table,column,changed,CLOUD_QUERIES[table]+`&fetched_at=gte.${encodeURIComponent(watermark||'')}`)];
- const merged=new Map();for(const row of previous)if(requested.has(row[column]))merged.set(JSON.stringify(keys.map(key=>row[key])),row);for(const row of updates)merged.set(JSON.stringify(keys.map(key=>row[key])),row);
+ const full=[],changed=[],forced=new Set(forceFull);let watermark=null;
+ for(const id of ids){const rows=groups.get(id);if(forced.has(id)||!rows?.length||rows.some(row=>!/^\d{4}-\d{2}-\d{2}T/.test(String(row.fetched_at||'')))){full.push(id);continue}const latest=rows.reduce((max,row)=>row.fetched_at>max?row.fetched_at:max,'');changed.push(id);if(!watermark||latest<watermark)watermark=latest}
+ const batches=await Promise.all([selectForValues(table,column,full),selectForValues(table,column,changed,CLOUD_QUERIES[table]+`&fetched_at=gte.${encodeURIComponent(watermark||'')}`)]),updates=batches.flat();
+ const reloaded=new Set(full),merged=new Map();for(const row of previous)if(requested.has(row[column])&&!reloaded.has(row[column]))merged.set(JSON.stringify(keys.map(key=>row[key])),row);for(const row of updates)merged.set(JSON.stringify(keys.map(key=>row[key])),row);
  return [...merged.values()];
 }
 let activeCloudSync=null;
@@ -616,14 +621,16 @@ async function performCloudSync(userId,epoch,options,revision){
   const isins=[...new Set([...ops.map(o=>o.isin),...recurringRules.map(r=>r.isin),...transfers.flatMap(t=>[t.from_isin,t.to_isin])])].filter(Boolean);
   const previous=cloudSnapshot,incremental=!!options.priceChanges&&!!previous;
   const [funds,listings,sourceStates]=await Promise.all([selectForValues('funds','isin',isins),selectForValues('instrument_listings','isin',isins),selectForValues('instrument_source_state','isin',isins,'select=instrument_key,isin,listing_symbol,source_name,status,error,initialized,cursor_date,metadata,diagnostics,last_attempt_at,last_success_at,fallback_at&order=instrument_key.asc')]);
-  const sourceChanged=sourceStates.some(x=>x.source_name?.startsWith('Kutxabank')&&x.last_success_at!==previous?.sourceStates?.find(y=>y.instrument_key===x.instrument_key)?.last_success_at);
-  const navs=await readPriceChanges('fund_navs','isin',isins,previous?.navs,['isin','nav_date'],incremental&&!sourceChanged);
-  const listingPrices=await readPriceChanges('listing_prices','provider_symbol',listings.map(l=>l.provider_symbol),previous?.listingPrices,['provider_symbol','price_date'],incremental);
+  const replacedFundIsins=sourceStates.filter(x=>!x.listing_symbol&&x.source_name?.startsWith('Kutxabank')&&x.last_success_at!==previous?.sourceStates?.find(y=>y.instrument_key===x.instrument_key)?.last_success_at).map(x=>x.isin);
+  const [navs,listingPrices,storedFx]=await Promise.all([
+   readPriceChanges('fund_navs','isin',isins,previous?.navs,['isin','nav_date'],incremental,replacedFundIsins),
+   readPriceChanges('listing_prices','provider_symbol',listings.map(l=>l.provider_symbol),previous?.listingPrices,['provider_symbol','price_date'],incremental),
+   selectPaged('market_fx_rates','select=currency,rate_date,rate,source&order=currency.asc,rate_date.asc')
+  ]);
   const nextFunds={},nextListings={};for(const f of funds)nextFunds[f.isin]={...f,theme:f.theme&&f.theme!=='Sin clasificar'?f.theme:f.category||'Sin clasificar'};for(const l of listings)nextListings[l.provider_symbol]=l;
   for(const n of navs){const f=nextFunds[n.isin];if(f&&(!f.latest_nav||n.nav_date>f.latest_nav.date))f.latest_nav={date:n.nav_date,nav:+n.nav,currency:n.currency||f.currency||'EUR',source:n.source||'Supabase',fetched_at:n.fetched_at||null}}
   const dates=[...navs.map(n=>n.nav_date),...listingPrices.map(p=>p.price_date),...ops.flatMap(o=>[o.operation_date,o.execution_date,o.reference_nav_date]),...recurringRules.map(r=>r.start_date)],firstDate=dates.reduce((oldest,date)=>/^\d{4}-\d{2}-\d{2}$/.test(String(date))&&(!oldest||date<oldest)?date:oldest,null);
   const nextFx={fxRates:{...state.fxRates},fxHistory:{...state.fxHistory}};
-  const storedFx=await selectPaged('market_fx_rates','select=currency,rate_date,rate,source&order=currency.asc,rate_date.asc');
   const fxGroups=new Map();for(const x of storedFx){if(!fxGroups.has(x.currency))fxGroups.set(x.currency,[]);fxGroups.get(x.currency).push({date:x.rate_date,rate:Number(x.rate),source:x.source})}for(const [currency,rows] of fxGroups){nextFx.fxHistory[currency]=rows;const latest=rows.at(-1);nextFx.fxRates[currency]={rate:latest.rate,date:latest.date,source:latest.source}}
   nextFx.fxRates.EUR={rate:1,date:todayISO(),source:'EUR'};
   if(session?.user?.id!==userId||sessionEpoch!==epoch||revision!==serverMutationRevision)return false;
@@ -633,7 +640,10 @@ async function performCloudSync(userId,epoch,options,revision){
   state.portfolios=portfolios;state.activePortfolioId=wanted.id;state.funds=nextFunds;state.listings=nextListings;state.fxRates=nextFx.fxRates;state.fxHistory=nextFx.fxHistory;
   state.sourceStates=sourceStates;cloudSnapshot={accounts,ops,transfers,recurringRules,funds,navs,listings,listingPrices,sourceStates};state.lastNavUpdate=[...navs.map(n=>n.nav_date),...listingPrices.map(p=>p.price_date)].reduce((latest,date)=>date&&(!latest||date>latest)?date:latest,null);state.cloudSyncedAt=new Date().toISOString();applyActivePortfolio();safeStorageSet(ACTIVE_PORTFOLIO_KEY,wanted.id);
   }catch(error){state=prior.state;cloudSnapshot=prior.snapshot;cloudAccounts=prior.accounts;navHistory=prior.navs;listingHistory=prior.prices;document.body.dataset.readonly=state.readonly?'true':'false';invalidateCalculations();throw error}
-  setCloudStatus('Sincronizado con Supabase','ok');return true;
+  if(cacheWriteTimer!==null){clearTimeout(cacheWriteTimer);cacheWriteTimer=null}
+  const cached=await persistPortfolioCache(userId,cacheWriteGeneration);
+  if(session?.user?.id!==userId||sessionEpoch!==epoch)return false;
+  setCloudStatus(cached?'Sincronizado con Supabase':'Datos leídos · no se pudo guardar la copia local',cached?'ok':'warn');return true;
  }catch(error){
   if(session?.user?.id!==userId||sessionEpoch!==epoch)return false;
   console.error(error);

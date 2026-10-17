@@ -1,5 +1,5 @@
 importScripts('./version.js');
-// v0.16.6: Gestión de estados, contador por posiciones y privacidad al arrancar.
+// v0.16.7: arranque desde copia local y actualización manual con lecturas incrementales.
 const CACHE='mi-cartera-v'+self.MI_CARTERA_VERSION;
 const ASSETS=['./','./index.html','./manifest.webmanifest','./version.js','./config.js','./core.js','./access.js','./analysis.js','./operations.js','./market.js','./privacy.js','./privacy.css','./data-status.js','./data-status.css','./app.js','./version.json','./santander.png','./kutxabank.png','./icons/icon-192.png','./icons/icon-512.png'];
 const assetURLs=new Set(ASSETS.map(asset=>new URL(asset,self.location.href).href));

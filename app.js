@@ -10,7 +10,7 @@ async function syncViewerData(){
  const overlay=document.getElementById('viewerSyncOverlay'),spinner=document.getElementById('viewerSyncSpinner'),title=document.getElementById('viewerSyncTitle'),message=document.getElementById('viewerSyncMessage'),close=document.getElementById('viewerSyncClose');
  button.disabled=true;overlay.hidden=false;spinner.hidden=false;close.hidden=true;title.textContent='Sincronizando datos…';message.textContent='Consultando la cartera en Supabase. Espera un momento.';
  try{
-  const ok=await syncFromCloud(false);
+  const ok=await syncFromCloud(false,{priceChanges:true});
   title.textContent=ok?'Datos sincronizados':'No se pudo sincronizar';
   message.textContent=ok?'La cartera ya muestra los datos disponibles en Supabase.':'Comprueba la conexión e inténtalo de nuevo.';
  }catch(error){console.error(error);title.textContent='No se pudo sincronizar';message.textContent='Comprueba la conexión e inténtalo de nuevo.'}
@@ -18,37 +18,52 @@ async function syncViewerData(){
 }
 
 let startupRunning=false;
-let startupBusyRelease=null;
-function setStartupScreen(mode='loading'){
- const overlay=document.getElementById('startupOverlay');
- if(mode==='loading'){
-  if(!startupBusyRelease)startupBusyRelease=beginAppBusy('Cargando datos…');
- }else if(startupBusyRelease){startupBusyRelease();startupBusyRelease=null}
- overlay.hidden=mode!=='error';
- document.getElementById('startupSpinner').hidden=mode==='error';
- document.getElementById('startupRetry').hidden=mode!=='error';
- document.getElementById('startupTitle').textContent=mode==='error'?'No se pudo cargar la cartera':'Cargando cartera…';
- document.getElementById('startupMessage').textContent=mode==='error'?'No hay una copia local disponible. Comprueba la conexión y vuelve a intentarlo.':'Recuperando tus datos. Espera un momento.';
+let manualLoadRunning=false;
+function setManualLoadScreen(pending,message=''){
+ document.body.classList.toggle('manual-load',pending);
+ document.getElementById('manualLoadPrompt').hidden=!pending;
+ document.getElementById('manualLoadMessage').textContent=message;
+ for(const element of document.querySelectorAll('[data-page],#newOpFab,#newOpTop,#newSanTop'))element.inert=pending;
+ if(pending)setCloudStatus('Pulsa Actualizar para cargar los datos');
+}
+async function showSavedPortfolio(){
+ const hasCache=await loadCache()&&state.portfolios.length>0;
+ if(hasCache){setManualLoadScreen(false);updateAccessMode();renderAll();setCloudStatus('Última copia guardada · pulsa Actualizar para renovar los datos','local')}
+ else setManualLoadScreen(true,'Todavía no hay una copia guardada en este navegador.');
+ showApp();return hasCache;
 }
 async function init(){
  if(startupRunning)return;
- startupRunning=true;setStartupScreen();document.getElementById('authGate').classList.add('hidden');document.getElementById('app').classList.add('auth-hidden');
- let hasCache=false;
+ startupRunning=true;
  try{
-  if(!SUPABASE_URL||!SUPABASE_KEY){showAuth();setAuthMessage('Configuración de Supabase incompleta.',true);setStartupScreen('hidden');return}
-  if(await acceptInvitation()){setStartupScreen('hidden');return}
-  const ok=await ensureSession();if(!ok){showAuth();setStartupScreen('hidden');return}
-  hasCache=await loadCache()&&state.portfolios.length>0;
-  if(hasCache){updateAccessMode();state.lastValue=null;renderAll();showApp()}
-  const synced=await syncFromCloud();
-  if(synced){state.lastValue=null;renderAll();showApp();setStartupScreen('hidden')}
-  else if(!document.getElementById('authGate').classList.contains('hidden'))setStartupScreen('hidden');
-  else if(!hasCache)setStartupScreen('error');
+  setManualLoadScreen(true);
+  if(!SUPABASE_URL||!SUPABASE_KEY){showAuth();setAuthMessage('Configuración de Supabase incompleta.',true);return}
+  if(await acceptInvitation())return;
+  // Abre la última copia local; no renueva la sesión ni consulta Supabase.
+  session=loadSession();
+  if(!session?.access_token||!session?.user?.id){showAuth();return}
+  await showSavedPortfolio();
+ }catch(error){
+  console.error(error);showAuth();setAuthMessage('No se pudo preparar el acceso. Vuelve a intentarlo.',true);
+ }finally{document.getElementById('startupOverlay').hidden=true;renderAppBusy();startupRunning=false}
+}
+async function loadPortfolioOnDemand(){
+ if(manualLoadRunning)return;
+ manualLoadRunning=true;const release=beginAppBusy('Cargando datos…');let hasCache=false;
+ try{
+  if(!await ensureSession()){showAuth();setAuthMessage('Inicia sesión para cargar la cartera.',true);return}
+  hasCache=!!cloudSnapshot&&state.portfolios.length>0;
+  if(!hasCache)hasCache=await loadCache()&&state.portfolios.length>0;
+  const ok=await syncFromCloud(false,{priceChanges:true});
+  if(ok){setManualLoadScreen(false);state.lastValue=null;renderAll();showApp()}
+  else if(!document.getElementById('authGate').classList.contains('hidden'))return;
+  else if(hasCache){setManualLoadScreen(false);updateAccessMode();renderAll();showApp();setCloudStatus('Sin conexión · mostrando la última copia local','warn')}
+  else setManualLoadScreen(true,'No se pudieron cargar los datos. Comprueba la conexión y pulsa Actualizar para reintentar.');
  }catch(error){
   console.error(error);
-  if(hasCache){setCloudStatus('No se pudo sincronizar · mostrando la copia local','warn');setStartupScreen('hidden')}
-  else setStartupScreen('error');
- }finally{if(startupBusyRelease){startupBusyRelease();startupBusyRelease=null}startupRunning=false}
+  if(hasCache){setManualLoadScreen(false);updateAccessMode();renderAll();showApp();setCloudStatus('Sin conexión · mostrando la última copia local','warn')}
+  else setManualLoadScreen(true,'No se pudieron cargar los datos. Comprueba la conexión y vuelve a intentarlo.');
+ }finally{release();manualLoadRunning=false}
 }
 
 async function acceptInvitation(){
@@ -65,18 +80,19 @@ async function acceptInvitation(){
 }
 document.getElementById('invitationForm').addEventListener('submit',async event=>{
  event.preventDefault();const button=event.currentTarget.querySelector('button'),message=document.getElementById('invitationMessage');button.disabled=true;
- try{await authFetch('/auth/v1/user',{method:'PUT',headers:{Authorization:`Bearer ${session.access_token}`},body:JSON.stringify({password:document.getElementById('invitationPassword').value})});document.getElementById('invitationPassword').value='';document.getElementById('invitationForm').style.display='none';document.getElementById('loginForm').style.display='grid';if(!await syncFromCloud())throw new Error('No se pudo cargar la cartera compartida. Vuelve a iniciar sesión.');showApp();}
+ try{await authFetch('/auth/v1/user',{method:'PUT',headers:{Authorization:`Bearer ${session.access_token}`},body:JSON.stringify({password:document.getElementById('invitationPassword').value})});document.getElementById('invitationPassword').value='';document.getElementById('invitationForm').style.display='none';document.getElementById('loginForm').style.display='grid';await showSavedPortfolio();}
  catch(error){showAuth();message.textContent='No se pudo guardar la contraseña: '+error.message}
  finally{button.disabled=false}
 });
 
-document.getElementById('loginForm')?.addEventListener('submit',async e=>{e.preventDefault();const email=document.getElementById('loginEmail').value.trim(),password=document.getElementById('loginPassword').value;const btn=document.getElementById('loginBtn');btn.disabled=true;setAuthMessage('Conectando…');try{await signIn(email,password);state.positions=[];state.operations=[];state.portfolios=[];cloudSnapshot=null;state.readonly=false;await loadCache();if(state.portfolios.length)updateAccessMode();setAuthMessage('');if(await syncFromCloud())showApp()}catch(err){setAuthMessage(err.message,true)}finally{btn.disabled=false}});
+document.getElementById('loginForm')?.addEventListener('submit',async e=>{e.preventDefault();const email=document.getElementById('loginEmail').value.trim(),password=document.getElementById('loginPassword').value;const btn=document.getElementById('loginBtn');btn.disabled=true;setAuthMessage('Conectando…');try{await signIn(email,password);state.positions=[];state.operations=[];state.portfolios=[];cloudSnapshot=null;state.readonly=false;setAuthMessage('');await showSavedPortfolio()}catch(err){setAuthMessage(err.message,true)}finally{btn.disabled=false}});
 document.getElementById('logoutBtn')?.addEventListener('click',signOut);
 document.getElementById('portfolioSelect')?.addEventListener('change',e=>changeActivePortfolio(e.target.value));
 document.getElementById('refreshBtn').onclick=synchronizePortfolio;document.getElementById('downloadQuotesBtn').onclick=downloadPortfolioQuotes;document.getElementById('newOpFab').onclick=openNewOp;document.getElementById('newOpTop').onclick=openNewOp;document.getElementById('newSanTop').onclick=()=>{if(state.readonly)return;openNewOp();document.querySelectorAll('#typeSeg button').forEach(x=>x.classList.toggle('active',x.dataset.type==='Inicio SAN 2026'));renderOpForm('Inicio SAN 2026')};document.getElementById('positionSearch').oninput=renderPositions;
 document.getElementById('opBackdrop').addEventListener('click',e=>{if(e.target.id==='opBackdrop')closeOp()});document.getElementById('detailBackdrop').addEventListener('click',e=>{if(e.target.id==='detailBackdrop')closeDetail()});
 document.querySelectorAll('#groupMode button').forEach(b=>b.onclick=()=>{state.group=b.dataset.group;document.querySelectorAll('#groupMode button').forEach(x=>x.classList.toggle('active',x===b));saveCache();renderPositions()});
 document.querySelectorAll('#opFilter button').forEach(b=>b.onclick=()=>{state.opFilter=b.dataset.filter;document.querySelectorAll('#opFilter button').forEach(x=>x.classList.toggle('active',x===b));saveCache();renderOps()});
+document.getElementById('manualLoadBtn').onclick=loadPortfolioOnDemand;
 document.getElementById('themeBtn').onclick=toggleTheme;document.getElementById('themeDesktop').onclick=toggleTheme;
 let analysisResizeTimer=null;window.addEventListener('resize',()=>{clearTimeout(analysisResizeTimer);analysisResizeTimer=setTimeout(()=>{if(document.getElementById('page-analysis')?.classList.contains('active'))renderAnalysis()},120)});
 const savedTheme=safeStorageGet(THEME_KEY);if(savedTheme==='dark')document.documentElement.dataset.theme='dark';

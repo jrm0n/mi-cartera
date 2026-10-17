@@ -79,6 +79,12 @@ body.data-busy{overflow:hidden}
 [data-theme="dark"] .data-busy-segment{background:#a8c9f7}
 @keyframes data-busy-slide{from{transform:translateX(-110%)}to{transform:translateX(345%)}}
 @media(prefers-reduced-motion:reduce){.data-busy-segment{animation:none;left:30%}}
+
+.manual-load-prompt{max-width:520px;margin:30px auto;padding:24px;background:var(--panel);border:1px solid var(--line);border-radius:16px;text-align:center}
+.manual-load-prompt p{line-height:1.5}.manual-load-prompt[hidden]{display:none}
+body.manual-load main>.page,body.manual-load .bottom-nav,body.manual-load .fab{display:none!important}
+body.manual-load .portfolio-head{display:none!important}body.manual-load .access-brand{display:block!important}
+body.manual-load .desktop-side [data-page]{opacity:.45}
 </style>
 <link rel="stylesheet" href="privacy.css">
 <link rel="stylesheet" href="data-status.css">
@@ -96,12 +102,12 @@ body.data-busy{overflow:hidden}
     <div class="spacer"></div>
     <button class="sidebtn" id="installDesktop" style="display:none">Instalar app</button>
     <button class="sidebtn" id="themeDesktop">Modo oscuro</button>
-    <div class="muted" id="appVersionLabel" style="font-size:11px;padding:8px 4px">v0.16.6</div>
+    <div class="muted" id="appVersionLabel" style="font-size:11px;padding:8px 4px">v0.16.7</div>
   </aside>
 
   <header class="topbar"><div class="topbar-inner">
-    <div class="portfolio-head"><label class="eyebrow" for="portfolioSelect"><span>Cartera activa</span><span class="top-version" id="topVersionLabel">v0.16.6</span></label><select id="portfolioSelect" class="portfolio-select" aria-label="Seleccionar cartera"><option>Mi cartera</option></select></div>
-    <div class="access-brand">Mi Cartera <span class="top-version" id="accessVersionLabel">v0.16.6</span></div>
+    <div class="portfolio-head"><label class="eyebrow" for="portfolioSelect"><span>Cartera activa</span><span class="top-version" id="topVersionLabel">v0.16.7</span></label><select id="portfolioSelect" class="portfolio-select" aria-label="Seleccionar cartera"><option>Mi cartera</option></select></div>
+    <div class="access-brand">Mi Cartera <span class="top-version" id="accessVersionLabel">v0.16.7</span></div>
     <div class="spacer"></div>
     <span class="sync-badge" id="syncBadge">Conectando…</span>
     <button class="iconbtn" id="logoutBtn" aria-label="Cerrar sesión" title="Cerrar sesión">⇥</button>
@@ -111,6 +117,12 @@ body.data-busy{overflow:hidden}
   </div></header>
 
   <main>
+    <section id="manualLoadPrompt" class="manual-load-prompt" aria-labelledby="manualLoadTitle" hidden>
+      <h2 id="manualLoadTitle">Cargar cartera</h2>
+      <p>Los datos se cargarán cuando pulses Actualizar.</p>
+      <button class="btn primary" id="manualLoadBtn" type="button">↻ Actualizar</button>
+      <p class="muted" id="manualLoadMessage" role="status"></p>
+    </section>
     <section class="page active" id="page-home">
       <div class="notice data-health-notice" id="dataHealthNotice" hidden>Hay incidencias de datos en esta cartera. <button class="btn small" type="button" onclick="openDataIncidents()">Revisar en Gestión</button></div>
       <div class="hero">
@@ -125,7 +137,7 @@ body.data-busy{overflow:hidden}
         <div class="hero-card">
           <div class="eyebrow">Desde última actualización</div>
           <div style="font-size:24px;font-weight:850;margin:5px 0" id="sinceUpdate">—</div>
-          <button class="btn primary" id="refreshBtn">↻ Sincronizar</button>
+          <button class="btn primary" id="refreshBtn">↻ Actualizar</button>
           <div class="refresh-progress" id="refreshProgress" role="status" aria-live="polite" hidden><div id="refreshProgressText">Preparando actualización…</div><div class="progress-track"><div class="progress-fill" id="refreshProgressFill"></div></div></div>
         </div>
       </div>
@@ -164,7 +176,7 @@ body.data-busy{overflow:hidden}
       <div class="analysis-card"><div class="eyebrow">Atribución del resultado</div><div class="muted" style="font-size:11px;margin-top:4px">Pulsa un instrumento, banco o temática para aplicar el filtro al resultado y al gráfico.</div><div id="attributionBody"></div></div>
       <div class="analysis-card"><div class="eyebrow">Calidad de los datos</div><p class="muted" style="line-height:1.45;margin:8px 0">Las descargas automáticas empiezan a las 06:00 y 18:00, hora peninsular. Puedes solicitar otra descarga cuando la necesites.</p><button class="btn small" id="downloadQuotesBtn" type="button">↻ Descargar cotizaciones</button><div id="qualityBody"></div></div>
       <div class="analysis-card"><div class="eyebrow">Distribución temática</div><div class="mini-bars" id="themeBars"></div></div>
-      <div class="analysis-card"><div class="eyebrow">Datos y versión</div><p style="line-height:1.5;margin:8px 0 10px"><strong id="appVersionAnalysis">Mi Cartera v0.16.6 Cloud</strong> · esquema de datos <span id="schemaVersionAnalysis">10</span>.<br>Supabase es la fuente de verdad. La app conserva además una copia local de lectura para poder mostrar la última cartera si temporalmente no hay conexión.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small" id="exportBackupBtn" onclick="exportBackup()">Exportar copia</button><button class="btn small" onclick="document.getElementById('backupFile').click()">Comprobar copia</button><input id="backupFile" type="file" accept=".json,application/json" style="display:none" onchange="verifyBackupFile(this)"><button class="btn small" id="restoreBackupBtn" onclick="document.getElementById('restoreFile').click()">Restaurar copia</button><input id="restoreFile" type="file" accept=".json,application/json" style="display:none" onchange="restoreBackupFile(this)"><button class="btn small" onclick="syncFromCloud(true)">Sincronizar ahora</button></div><div class="muted" id="backupStatus" role="status" style="margin-top:8px"></div><div class="notice" id="cloudStatus" style="margin-top:10px">Conectando con Supabase…</div><div class="muted" id="signedUser" style="font-size:12px;margin-top:8px"></div></div>
+      <div class="analysis-card"><div class="eyebrow">Datos y versión</div><p style="line-height:1.5;margin:8px 0 10px"><strong id="appVersionAnalysis">Mi Cartera v0.16.7 Cloud</strong> · esquema de datos <span id="schemaVersionAnalysis">10</span>.<br>Supabase es la fuente de verdad. La app conserva además una copia local de lectura para poder mostrar la última cartera si temporalmente no hay conexión.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small" id="exportBackupBtn" onclick="exportBackup()">Exportar copia</button><button class="btn small" onclick="document.getElementById('backupFile').click()">Comprobar copia</button><input id="backupFile" type="file" accept=".json,application/json" style="display:none" onchange="verifyBackupFile(this)"><button class="btn small" id="restoreBackupBtn" onclick="document.getElementById('restoreFile').click()">Restaurar copia</button><input id="restoreFile" type="file" accept=".json,application/json" style="display:none" onchange="restoreBackupFile(this)"><button class="btn small" onclick="syncFromCloud(true)">Sincronizar ahora</button></div><div class="muted" id="backupStatus" role="status" style="margin-top:8px"></div><div class="notice" id="cloudStatus" style="margin-top:10px">Conectando con Supabase…</div><div class="muted" id="signedUser" style="font-size:12px;margin-top:8px"></div></div>
     </section>
     <section class="page" id="page-access"><div class="section-head"><h2>Gestión</h2></div><div class="analysis-card data-status-card"><h3>Estado de datos</h3><div id="dataStatusContents"></div></div><div class="analysis-card"><h3>Gestionar carteras</h3><p class="muted">Crea una cartera para cada perfil y cambia su nombre cuando lo necesites.</p><div id="portfolioManagementContents"></div></div><div class="analysis-card"><h3>Accesos</h3><p class="muted">Asigna a cada persona las carteras que puede consultar. Los invitados solo tienen permiso de lectura.</p><div id="accessContents">Cargando accesos…</div></div></section>
   </main>
@@ -183,8 +195,8 @@ body.data-busy{overflow:hidden}
 <div class="drawer-backdrop" id="opBackdrop" inert><div class="drawer"><div class="drawer-handle"></div><div id="opContent"></div></div></div>
 <div class="viewer-sync-overlay" id="viewerSyncOverlay" role="dialog" aria-modal="true" aria-labelledby="viewerSyncTitle" hidden><div class="viewer-sync-card"><div class="viewer-sync-spinner" id="viewerSyncSpinner" aria-hidden="true"></div><h2 id="viewerSyncTitle">Sincronizando datos…</h2><p id="viewerSyncMessage" role="status" aria-live="polite">Consultando la cartera en Supabase. Espera un momento.</p><button class="btn primary" id="viewerSyncClose" type="button" onclick="closeViewerSync()" hidden>Cerrar</button></div></div>
 
-<div class="viewer-sync-overlay" id="startupOverlay" role="status" aria-live="polite" hidden><div class="viewer-sync-card"><div class="viewer-sync-spinner" id="startupSpinner" aria-hidden="true"></div><h2 id="startupTitle">Cargando cartera…</h2><p id="startupMessage">Recuperando tus datos. Espera un momento.</p><button class="btn primary" id="startupRetry" type="button" onclick="init()" hidden>Reintentar</button></div></div>
-<div class="data-busy-overlay" id="dataBusyOverlay" role="status" aria-live="polite" aria-atomic="true" tabindex="-1"><div class="data-busy-content"><div class="data-busy-label" id="dataBusyLabel">Cargando datos…</div><div class="data-busy-track" aria-hidden="true"><div class="data-busy-segment"></div></div></div></div>
+<div class="viewer-sync-overlay" id="startupOverlay" role="status" aria-live="polite" hidden><div class="viewer-sync-card"><div class="viewer-sync-spinner" id="startupSpinner" aria-hidden="true"></div><h2 id="startupTitle">Cargando cartera…</h2><p id="startupMessage">Recuperando tus datos. Espera un momento.</p><button class="btn primary" id="startupRetry" type="button" onclick="loadPortfolioOnDemand()" hidden>Reintentar</button></div></div>
+<div class="data-busy-overlay" id="dataBusyOverlay" role="status" aria-live="polite" aria-atomic="true" tabindex="-1"><div class="data-busy-content"><div class="data-busy-label" id="dataBusyLabel">Abriendo última cartera…</div><div class="data-busy-track" aria-hidden="true"><div class="data-busy-segment"></div></div></div></div>
 <script src="version.js"></script>
 <script src="config.js"></script>
 <script src="core.js"></script>
