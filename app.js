@@ -18,9 +18,13 @@ async function syncViewerData(){
 }
 
 let startupRunning=false;
+let startupBusyRelease=null;
 function setStartupScreen(mode='loading'){
  const overlay=document.getElementById('startupOverlay');
- overlay.hidden=mode==='hidden';
+ if(mode==='loading'){
+  if(!startupBusyRelease)startupBusyRelease=beginAppBusy('Cargando datos…');
+ }else if(startupBusyRelease){startupBusyRelease();startupBusyRelease=null}
+ overlay.hidden=mode!=='error';
  document.getElementById('startupSpinner').hidden=mode==='error';
  document.getElementById('startupRetry').hidden=mode!=='error';
  document.getElementById('startupTitle').textContent=mode==='error'?'No se pudo cargar la cartera':'Cargando cartera…';
@@ -35,7 +39,7 @@ async function init(){
   if(await acceptInvitation()){setStartupScreen('hidden');return}
   const ok=await ensureSession();if(!ok){showAuth();setStartupScreen('hidden');return}
   hasCache=await loadCache()&&state.portfolios.length>0;
-  if(hasCache){updateAccessMode();state.lastValue=null;renderAll();showApp();setStartupScreen('hidden')}
+  if(hasCache){updateAccessMode();state.lastValue=null;renderAll();showApp()}
   const synced=await syncFromCloud();
   if(synced){state.lastValue=null;renderAll();showApp();setStartupScreen('hidden')}
   else if(!document.getElementById('authGate').classList.contains('hidden'))setStartupScreen('hidden');
@@ -44,7 +48,7 @@ async function init(){
   console.error(error);
   if(hasCache){setCloudStatus('No se pudo sincronizar · mostrando la copia local','warn');setStartupScreen('hidden')}
   else setStartupScreen('error');
- }finally{startupRunning=false}
+ }finally{if(startupBusyRelease){startupBusyRelease();startupBusyRelease=null}startupRunning=false}
 }
 
 async function acceptInvitation(){

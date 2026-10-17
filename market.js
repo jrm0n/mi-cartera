@@ -189,7 +189,8 @@ async function restoreBackupFile(input){
 let marketRefreshPromise=null;
 function exclusiveMarketRefresh(action){
  if(marketRefreshPromise)return marketRefreshPromise;
- const pending=Promise.resolve().then(action);marketRefreshPromise=pending;
+ const release=beginAppBusy('Actualizando datos…');
+ const pending=Promise.resolve().then(action).finally(release);marketRefreshPromise=pending;
  pending.finally(()=>{if(marketRefreshPromise===pending)marketRefreshPromise=null}).catch(()=>{});
  return pending;
 }

@@ -12,6 +12,36 @@ function renderVersionLabels(){
  const e=document.getElementById('accessVersionLabel');if(e)e.textContent=`v${APP_VERSION}`;
 }
 
+// Bloqueo visual compartido. Cada tarea libera solo su propio bloqueo.
+const appBusyTasks=new Map();
+let appBusyFocus=null;
+function renderAppBusy(){
+ const busy=appBusyTasks.size>0,overlay=document.getElementById('dataBusyOverlay');
+ if(overlay)overlay.hidden=!busy;
+ document.body.classList.toggle('data-busy',busy);
+ for(const id of ['app','authGate','opBackdrop','detailBackdrop','viewerSyncOverlay']){
+  const element=document.getElementById(id);if(element)element.inert=busy;
+ }
+ document.getElementById('app')?.setAttribute('aria-busy',String(busy));
+ if(busy){
+  const label=document.getElementById('dataBusyLabel');if(label)label.textContent=[...appBusyTasks.values()].includes('Cargando datos…')?'Cargando datos…':'Actualizando datos…';
+ }else if(appBusyFocus){
+  const previous=appBusyFocus;appBusyFocus=null;
+  if(previous.isConnected&&!previous.closest('[inert],.auth-hidden,.hidden,[hidden]'))previous.focus({preventScroll:true});
+ }
+}
+function beginAppBusy(message='Actualizando datos…'){
+ const first=appBusyTasks.size===0,key=Symbol('data-task');
+ if(first)appBusyFocus=document.activeElement;
+ appBusyTasks.set(key,message);renderAppBusy();
+ if(first)document.getElementById('dataBusyOverlay')?.focus({preventScroll:true});
+ let released=false;
+ return ()=>{if(released)return;released=true;appBusyTasks.delete(key);renderAppBusy()};
+}
+async function withAppBusy(message,action){
+ const release=beginAppBusy(message);try{return await action()}finally{release()}
+}
+
 const THEME_KEY='mi_cartera_theme';
 const cfg=window.MI_CARTERA_CONFIG?.cloud||{};
 const SUPABASE_URL=(cfg.url||'').replace(/\/$/,'');
@@ -565,6 +595,9 @@ async function readPriceChanges(table,column,values,previous,keys,incremental){
 }
 let activeCloudSync=null;
 async function syncFromCloud(showNotice=false,options={}){
+ return withAppBusy('Actualizando datos…',()=>syncFromCloudTask(showNotice,options));
+}
+async function syncFromCloudTask(showNotice=false,options={}){
  const userId=session?.user?.id,existing=activeCloudSync;
  if(existing?.userId===userId&&existing.epoch===sessionEpoch){
   const ok=await existing.promise;

@@ -1,0 +1,16 @@
+.privacy-toggle{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.privacy-toggle svg{width:21px;height:21px;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.privacy-toggle[aria-pressed="true"]{background:var(--panel2);border-color:var(--muted)}
+privacy-value{display:inline!important}
+.privacy-hidden privacy-value{display:inline-block!important;position:relative;width:4.5em;max-width:100%;height:1.2em;vertical-align:bottom;overflow:hidden;white-space:nowrap;color:transparent!important;user-select:none}
+.privacy-hidden privacy-value::after{content:'———';position:absolute;inset:0;color:var(--text);letter-spacing:.08em;font:inherit;text-align:inherit}
+.privacy-hidden .metric-positive,.privacy-hidden .metric-negative,.privacy-hidden .trend,.privacy-hidden .barval,.privacy-hidden .attribution-filter.good,.privacy-hidden .attribution-filter.bad{color:var(--text)!important}
+privacy-chart{display:block;position:relative;min-width:0}
+.privacy-hidden privacy-chart canvas{visibility:hidden;pointer-events:none}
+.privacy-hidden privacy-chart::after{content:'Gráfico oculto';position:absolute;inset:0;display:grid;place-items:center;background:var(--panel2);color:var(--muted);border-radius:10px}
+.privacy-hidden .chart-tooltip{display:none!important}
+.privacy-hidden .barfill{visibility:hidden}
+privacy-input{display:block;position:relative;min-width:0;width:100%}
+.privacy-hidden privacy-input input{visibility:hidden}
+.privacy-hidden privacy-input::after{content:'———';position:absolute;inset:0;display:flex;align-items:center;padding:0 12px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;color:var(--text);letter-spacing:.08em}
+@media(max-width:380px){.topbar-inner{gap:4px;padding-left:10px;padding-right:10px}.portfolio-select{max-width:calc(100vw - 192px)}.iconbtn{width:36px;min-width:36px}}
