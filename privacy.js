@@ -4,8 +4,7 @@
  const KEY='mi_cartera_privacy_v1',root=document.documentElement;
  const skip='script,style,noscript,[data-privacy-toggle],.rangebar,.segmented,.navbtn,.sidebtn,.analysis-link,input,textarea,select,option,privacy-value,privacy-input,privacy-chart,#authGate,#dataBusyOverlay,#startupOverlay,.fund-name,.drawer-title,.sidebrand,.top-version,#appVersionLabel,#appVersionAnalysis';
  const financialInput='input[type="number"],input[inputmode="decimal"],#fLatestNav';
- let enabled=false;
- try{enabled=localStorage.getItem(KEY)==='hidden'}catch{}
+ let enabled=true; // Cada arranque exige una revelación explícita del usuario.
  const observer=new MutationObserver(()=>{if(enabled)scan()});
  function observe(){observer.observe(document.body,{childList:true,subtree:true,characterData:true})}
  // Fechas, ISIN, versiones y etiquetas como 1M/5D siguen siendo legibles.
@@ -69,6 +68,9 @@
  }));
  // Evita copiar cifras ocultas a través de la selección de texto.
  document.addEventListener('copy',event=>{if(enabled&&document.getSelection()?.toString()){event.preventDefault();event.clipboardData?.setData('text/plain','———')}});
- window.addEventListener('storage',event=>{if(event.key===KEY){enabled=event.newValue==='hidden';render()}});
+ // Otra pestaña puede ocultar, pero nunca revelar cifras en esta sesión.
+ window.addEventListener('storage',event=>{if(event.key===KEY&&event.newValue==='hidden'){enabled=true;render()}});
+ // También se ocultan al volver desde la caché de navegación del navegador.
+ window.addEventListener('pageshow',event=>{if(event.persisted){enabled=true;render()}});
  render();
 })();

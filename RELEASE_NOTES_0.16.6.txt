@@ -1,0 +1,128 @@
+MI CARTERA — VERSIÓN 0.16.6
+Fecha: 17 de octubre de 2026
+
+1. ENTIDADES CON POSICIONES
+
+Gestión cuenta las entidades distintas donde la cartera mantiene participaciones
+o acciones. Una entidad sin posiciones no se suma aunque su cuenta siga activa.
+Varias cuentas de la misma entidad cuentan como una sola entidad.
+El recuento no depende de disponer de un VL reciente: la ausencia de cotización
+no elimina una posición del contador.
+
+El texto pasa a ser «4 entidades con posiciones», por ejemplo, y se identifica
+por separado la «Cartera activa». Las operaciones de entidades sin posiciones
+se conservan. No se borra ni desactiva ninguna cuenta.
+
+2. GESTIÓN → ESTADO DE DATOS
+
+Se añaden tres pestañas:
+
+ACTUALIZACIONES
+- Registro de los trabajos encolados por las ejecuciones del servidor.
+- Fecha/hora de inicio, franja horaria y final cuando todos los trabajos terminan.
+- Recuento de trabajos procesados, fallidos, pendientes y en ejecución.
+- Cada usuario ve únicamente los trabajos de sus instrumentos registrados en
+  operaciones completadas de carteras y cuentas activas propias.
+
+El registro empieza al instalar 034-estado-datos.txt. No reconstruye ejecuciones
+anteriores. El registro observa el encolador existente y conserva su lógica,
+incluidos los dos turnos, sin cambiar los horarios del programador.
+La franja se clasifica según la hora del encolado; no acredita por sí sola
+que la llamada proceda del programador. No registra fallos anteriores a la
+creación de la cola, ni presenta una llamada sin trabajos como una descarga.
+
+Un trabajo puede continuar en curso mientras recupera históricos. «Procesado»
+significa que el trabajo de la cola terminó; no garantiza que el mercado haya
+publicado un VL nuevo ni certifica un histórico sin huecos.
+Los resultados de ejecuciones terminadas no se reabren por un reintento posterior.
+El resumen de ejecuciones corresponde a todas las carteras propias; el filtro
+de cartera se aplica al detalle de instrumentos y a las incidencias.
+
+FONDOS
+- Selector de todas las carteras propias o de una cartera concreta.
+- Instrumentos actuales y vendidos, identificados por ISIN y mercado, si existe.
+- Último VL/precio guardado, fecha y proveedor.
+- Primera y última fecha guardadas y número de cotizaciones.
+- Fuente y estado históricos, próximo bloque pendiente y estado real de la cola.
+- Fecha del último intento y de la última descarga correcta.
+
+Los instrumentos vendidos permanecen accesibles, pero se distinguen de las
+posiciones actuales. Un instrumento vendido en una cartera y conservado en otra
+mantiene el estado correspondiente al filtro elegido.
+«Disponible según la fuente» conserva el criterio histórico existente: no es
+una auditoría de todas las sesiones de cotización.
+
+INCIDENCIAS
+- Errores registrados de la fuente, del histórico o de la cola.
+- Precios no válidos, fechas no válidas o futuras y fechas duplicadas.
+- Precios distintos guardados para la misma fecha.
+- Diferencias entre la divisa guardada y la ficha del instrumento.
+- Aviso de precios actuales con más de cuatro días de antigüedad.
+- Aviso de trabajos que han superado su plazo o agotado sus intentos.
+- Aviso de movimientos de al menos un 15 % entre cotizaciones separadas por
+  siete días o menos, dentro de los últimos 90 días.
+
+El 15 % es un umbral de revisión, no una prueba de error. Los controles se
+aplican a los datos guardados; no son una comparación simultánea de nuevas
+consultas a todos los proveedores. Los avisos no eliminan precios ni bloquean
+su uso en la valoración. Deben revisarse antes de decidir una corrección.
+
+Sincronizar estado vuelve a leer la cartera y los estados del servidor.
+No solicita nuevas cotizaciones a los proveedores. La pantalla muestra
+cuándo se leyeron los precios y cuándo se consultó la cola.
+
+3. REINTENTOS DESDE GESTIÓN
+
+Reintentar descarga vuelve a encolar el ISIN y el mercado exactos del instrumento.
+El trabajador del servidor lo procesará en sus siguientes ejecuciones.
+Un reintento puede seguir mostrando el último error hasta que se procese.
+No es necesario introducir SQL para cada reintento.
+
+El servidor comprueba que existan operaciones completadas del instrumento en
+una cartera y cuenta activas del propietario. No permite reintentar instrumentos
+de otro usuario ni cambiar a otra bolsa. Polar Biotecnología IE00B3VXGD32
+permanece excluido de la recuperación por petición del usuario.
+
+4. AVISO EN INICIO
+
+Si se detectan incidencias en instrumentos con posición actual de la cartera
+activa, Inicio muestra un aviso discreto con acceso a Gestión → Incidencias.
+Los instrumentos ya vendidos de esa cartera no activan este aviso.
+
+5. OJO ACTIVO EN CADA ARRANQUE
+
+La aplicación arranca siempre con las cifras ocultas mediante rayas, aunque
+se hubieran dejado visibles al cerrar. Es necesario pulsar el ojo para verlas.
+También vuelve a ocultarlas si el navegador recupera la página desde su caché
+de navegación. Otra pestaña puede pedir ocultar cifras, pero no revelarlas.
+
+Se conservan los importes, porcentajes, participaciones, gráficos y campos
+numéricos ocultos de 0.16.5, además del bloqueo con barra durante cargas y
+actualizaciones. El ocultado no modifica datos ni cálculos. Las exportaciones
+conservan sus datos originales.
+
+6. INSTALACIÓN DESDE 0.16.5
+
+1) Ejecutar 034-estado-datos.txt una vez en SQL Editor de Supabase.
+   La comprobación final debe devolver true en consulta_instalada y registro_activo.
+2) Subir todos los archivos de la carpeta github a la raíz del repositorio,
+   sustituyendo los existentes y añadiendo los nuevos. Se incluye este TXT.
+3) Esperar a que se publique la web, cerrar la app y abrirla de nuevo.
+   La versión visible debe ser 0.16.6 y el ojo debe estar activo.
+
+No es necesario publicar resolve-fund ni refresh-market-data de nuevo.
+No repetir las migraciones históricas anteriores. Esta actualización presupone
+la instalación histórica y el automatismo ya realizados durante la jornada.
+
+7. VALIDACIÓN
+
+- 40 pruebas de interfaz y lógica superadas, incluidos contador, filtros por
+  cartera, conservación de históricos, errores y privacidad al arrancar.
+- 17 comprobaciones de PostgreSQL embebido superadas, con cola de dos turnos,
+  reinstalación, resultados terminales y controles de propiedad y permisos.
+- Revisión en Chromium con datos de prueba a anchuras de 320, 390 y 1180 px:
+  sin errores de JavaScript ni desbordamiento horizontal en Gestión.
+
+Falta verificar la instalación del SQL en el proyecto Supabase del usuario y
+observar la primera ejecución posterior. Las pruebas de navegador utilizan
+respuestas simuladas del servidor; no acreditan un nuevo turno real descargado.

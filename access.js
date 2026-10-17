@@ -3,6 +3,7 @@ async function openAccessManager(){
  const owned=(state.portfolios||[]).filter(p=>p.user_id===session?.user?.id);
  if(!owned.length)return;
  openPortfolioManager();
+ renderDataStatus();void loadDataStatus();
  document.getElementById('accessContents').textContent='Cargando accesos…';
  await renderAccessManager(owned);
 }

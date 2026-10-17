@@ -302,7 +302,7 @@ function renderVisiblePage(force=false){
  if(!force&&renderedPageKeys.get(page)===key)return;
  const render={home:renderHome,viewer:renderViewerSummary,positions:renderPositions,operations:renderOps,analysis:renderAnalysis}[page];if(render){render();renderedPageKeys.set(page,key)}
 }
-function renderAll(){renderPortfolioSelector();if(!state.readonly)renderPeriodSelectors();renderVisiblePage()}
+function renderAll(){renderPortfolioSelector();if(!state.readonly)renderPeriodSelectors();renderVisiblePage();renderDataHealthNotice()}
 
 
 function rangeDate(range){const d=new Date();if(range==='M1')d.setMonth(d.getMonth()-1);else if(range==='M3')d.setMonth(d.getMonth()-3);else if(range==='M6')d.setMonth(d.getMonth()-6);else if(range==='Y1')d.setFullYear(d.getFullYear()-1);else if(range==='Y2')d.setFullYear(d.getFullYear()-2);else if(range==='Y3')d.setFullYear(d.getFullYear()-3);else if(range==='Y5')d.setFullYear(d.getFullYear()-5);else if(range==='YTD')return new Date(Date.UTC(d.getUTCFullYear(),0,1));else return new Date(0);return d}
