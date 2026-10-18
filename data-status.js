@@ -77,6 +77,7 @@ function dataInstrumentRows(filter=dataStatusPortfolio){
 }
 function dataHistoryLabel(row){
  if(row.isin==='IE00B3VXGD32')return 'Excluido de recuperación por tu elección';
+ if(row.history.status==='available'&&row.history.coverage_basis==='initial_gap_tolerance')return `Disponible · margen inicial de ${row.history.initial_gap_days} días`;
  return({available:'Disponible según la fuente',pending:'Recuperando histórico',unavailable:'Histórico incompleto'})[row.history.status]||'Sin estado histórico confirmado';
 }
 function dataQueueLabel(row){if(!dataStatusSnapshot)return 'Cola no consultada';return({pending:'En cola',running:'Procesando',done:'Trabajo terminado',failed:'Error de descarga'})[row.queue.status]||'Sin trabajo registrado'}

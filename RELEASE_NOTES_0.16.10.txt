@@ -1,0 +1,49 @@
+MI CARTERA 0.16.10 / RESOLVE-FUND HISTORICO-12
+18/10/2026
+
+Corrección del margen inicial en el histórico de Tradegate
+
+Diagnóstico confirmado
+- La última descarga de IE00BMC38736 estaba correcta, con cierres hasta 16/10/2026.
+- El primer cierre guardado de Tradegate era 17/12/2020.
+- La recuperación seguía buscando antes del primer dato con límite 01/01/1900.
+- MarketScreener devuelve HTTP 200 y cero filas al consultar 16/12/2020;
+  al consultar 17/12/2020 devuelve un cierre para ese día.
+- VanEck documenta 01/12/2020 como fecha de lanzamiento del ETF:
+  https://www.vaneck.com/se/en/investments/semiconductor-etf/overview/
+- Diferencia inicial: 17/12/2020 - 01/12/2020 = 16 días naturales.
+
+Criterio aplicado
+Se acepta como disponible con margen inicial un máximo de 21 días naturales
+al comienzo de un histórico de Tradegate, con fecha de inicio documentada y
+una respuesta válida, vacía, para todo ese tramo inicial.
+No se fabrican precios ni se cambia la fecha del primer cierre real.
+Este criterio no certifica todas las sesiones posteriores ni rellena huecos
+intermedios. No convierte errores HTTP, de divisa o de formato en cobertura.
+Los huecos iniciales de 22 días o más conservan el estado incompleto.
+El estado visible será: Disponible · margen inicial de 16 días.
+Una vez aceptado ese margen no se repite la misma búsqueda inicial en cada carga.
+Las descargas de cotizaciones recientes continúan.
+Se conservan las cotizaciones guardadas y sus etiquetas de aproximación.
+
+Archivos y publicación
+- github: 15 archivos para sustituir los correspondientes del repositorio.
+- resolve-fund-historico-12.txt: código COMPLETO de la función resolve-fund.
+  En Supabase > Edge Functions > resolve-fund > Code, sustituir el contenido
+  de index.ts por TODO ese TXT y publicar con Deploy.
+  No pegarlo en SQL Editor. Es código de función, no una consulta SQL.
+- No se necesita una migración SQL ni cambiar la programación de descargas.
+- La app identificará v0.16.10; la función devolverá HISTORICO-12.
+
+Después de publicar
+En Gestión > Incidencias, pulsa Reintentar descarga para VanEck Semiconductor.
+Cuando se procese el trabajo, pulsa Sincronizar estado para recoger el nuevo
+estado del histórico. El error antiguo desaparece al guardarse el nuevo estado.
+Si se produce otro fallo real, seguirá mostrando la incidencia correspondiente.
+
+Verificación
+145 pruebas automatizadas superadas: lector de históricos, límite de 21/22 días,
+conservación de errores reales, ausencia de búsquedas repetidas, finanzas,
+arranque, sincronización e interfaz de Gestión.
+Respuesta pública de MarketScreener y lanzamiento de VanEck comprobados.
+No se ha publicado la función en el proyecto del usuario desde este entorno.

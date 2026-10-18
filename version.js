@@ -1,2 +1,2 @@
 // Release identifier shared by the frontend and service worker.
-globalThis.MI_CARTERA_VERSION='0.16.9';
+globalThis.MI_CARTERA_VERSION='0.16.10';
