@@ -357,7 +357,7 @@ async function rest(path,options={},retry=true){
  if(session?.user?.id!==requestUser||sessionEpoch!==requestEpoch)throw new Error('La sesión cambió durante la solicitud');
  if(res.status===401&&retry){await refreshSession();return rest(path,options,false)}
  const text=await res.text();if(session?.user?.id!==requestUser||sessionEpoch!==requestEpoch)throw new Error('La sesión cambió durante la solicitud');let data=null;try{data=text?JSON.parse(text):null}catch{data=text}
- if(!res.ok){const msg=data?.message||data?.hint||data?.details||`HTTP ${res.status}`;throw new Error(msg)}
+ if(!res.ok){const msg=data?.message||data?.hint||data?.details||`HTTP ${res.status}`,error=new Error(msg);error.httpStatus=res.status;error.code=data?.code||null;throw error}
  if(options.method&&options.method!=='GET'&&!readRpc)serverMutationRevision++;return data;
 }
 const select=(table,query='')=>rest(`${table}${query?'?'+query:''}`);
@@ -624,7 +624,7 @@ async function readPriceChanges(table,column,values,previous,keys,incremental,fo
  const reloaded=new Set(full),merged=new Map();for(const row of previous)if(requested.has(row[column])&&!reloaded.has(row[column]))merged.set(JSON.stringify(keys.map(key=>row[key])),row);for(const row of updates)merged.set(JSON.stringify(keys.map(key=>row[key])),row);
  return [...merged.values()];
 }
-let activeCloudSync=null;
+let activeCloudSync=null,lastCloudSyncError=null;
 async function syncFromCloud(showNotice=false,options={}){
  return withAppBusy('Actualizando datos…',()=>syncFromCloudTask(showNotice,options));
 }
@@ -654,11 +654,11 @@ async function readStandardCloudSnapshot(previous,options){
  return {portfolios,accounts,ops,transfers,recurringRules,funds,listings,sourceStates,navs,listingPrices,storedFx};
 }
 async function performCloudSync(userId,epoch,options,revision){
+ lastCloudSyncError=null;
  setCloudStatus('Sincronizando…');
  try{
   const previous=cloudSnapshot;
-  const snapshot=options.priceChanges&&typeof readFastCloudSnapshot==='function'?await readFastCloudSnapshot(previous):null;
-  const {portfolios,accounts,ops,transfers,recurringRules,funds,listings,sourceStates,navs,listingPrices,storedFx,fastManifest}=snapshot||await readStandardCloudSnapshot(previous,options);
+  const {portfolios,accounts,ops,transfers,recurringRules,funds,listings,sourceStates,navs,listingPrices,storedFx,fastManifest}=typeof readCloudSnapshot==='function'?await readCloudSnapshot(previous,options):await readStandardCloudSnapshot(previous,options);
   if(!portfolios.length)throw new Error('NO_ACCESS: Esta cuenta no tiene carteras asignadas. Pide al propietario que comparta una cartera contigo.');
   const nextFunds={},nextListings={};for(const f of funds)nextFunds[f.isin]={...f,theme:f.theme&&f.theme!=='Sin clasificar'?f.theme:f.category||'Sin clasificar'};for(const l of listings)nextListings[l.provider_symbol]=l;
   for(const n of navs){const f=nextFunds[n.isin];if(f&&(!f.latest_nav||n.nav_date>f.latest_nav.date))f.latest_nav={date:n.nav_date,nav:+n.nav,currency:n.currency||f.currency||'EUR',source:n.source||'Supabase',fetched_at:n.fetched_at||null}}
@@ -683,6 +683,7 @@ async function performCloudSync(userId,epoch,options,revision){
   setCloudStatus(cached?'Sincronizado con Supabase':'Datos leídos · no se pudo guardar la copia local',cached?'ok':'warn');return true;
  }catch(error){
   if(session?.user?.id!==userId||sessionEpoch!==epoch)return false;
+  lastCloudSyncError=error;
   console.error(error);
   if(String(error?.message||'').startsWith('NO_ACCESS:')){clearPortfolioCache();state.positions=[];state.operations=[];state.calculationOperations=[];state.calculationIssues=[];state.portfolios=[];cloudSnapshot=null;navHistory={};listingHistory={};invalidateCalculations();showAuth();setAuthMessage(error.message.slice(11),true);return false}
   const missingRecurring=/recurring_operations|PGRST205|42P01/i.test(String(error?.message||error));setCloudStatus(missingRecurring?'Falta migración 015 · usando última copia local':'No se pudo sincronizar · mostrando los últimos datos disponibles','warn');return false;

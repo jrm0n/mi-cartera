@@ -1,0 +1,46 @@
+MI CARTERA — VERSIÓN 0.16.9
+18/10/2026
+
+RECUPERACIÓN DE LA CARGA Y DIAGNÓSTICO
+
+Situación comunicada
+El móvil actualiza correctamente. El ordenador, sin una copia local disponible,
+no consigue completar Actualizar y muestra un aviso genérico.
+La copia local es independiente en cada navegador y dispositivo.
+No se ha obtenido el error concreto del ordenador; su causa aún no está confirmada.
+
+Cambios
+- Si falla la lectura rápida agrupada, se intenta automáticamente la lectura
+  completa por páginas. No se mezclan resultados parciales con la copia anterior.
+- Los errores de sesión o de acceso no se reintentan mediante otra ruta.
+- Si también falla la lectura alternativa, la pantalla muestra el mensaje y
+  código concreto del error, en lugar de atribuirlo siempre a la conexión.
+- Las actualizaciones rápidas que funcionan mantienen una sola lectura agrupada.
+
+Funcionamiento conservado
+- Al abrir se muestra la última copia local disponible sin actualizar la cartera.
+- Si no hay copia en ese navegador, se solicita pulsar Actualizar.
+- Tras una carga correcta se guarda la copia para siguientes aperturas.
+- El ojo de privacidad arranca activado.
+- No se modifican las operaciones, las fórmulas ni la programación de descargas.
+
+Instalación
+1. Sube los 15 archivos de github a la raíz del repositorio, sustituyendo
+   los existentes. Incluye index.html, app.js, core.js, fast-sync.js,
+   version.js, version.json y sw.js.
+2. Cuando termine la publicación, cierra y abre la app. Comprueba v0.16.9.
+3. En el ordenador pulsa Actualizar para crear su copia local.
+4. Si falla, comunica el texto completo que ahora aparece bajo el botón.
+No hay que ejecutar SQL nuevo ni volver a publicar resolve-fund.
+Se mantiene la función instalada con 035-lectura-rapida.txt.
+
+Verificación
+- 49 pruebas automatizadas de código, incluidas recuperación, acceso,
+  integridad, arranque y presentación del diagnóstico: superadas.
+- 16 pruebas adicionales de interfaz de gestión y privacidad: superadas.
+- Chromium con servidor simulado: fallo de ambas rutas muestra el error;
+  fallo de la lectura agrupada con alternativa disponible carga 21.600 precios
+  de 12 fondos; guarda la copia y la recupera al reiniciar sin consultar Supabase.
+  Las siguientes actualizaciones rápidas mantienen una petición sin precios
+  transferidos cuando no hay cambios.
+Estas pruebas no confirman la causa específica del fallo en el ordenador real.

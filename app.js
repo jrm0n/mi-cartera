@@ -19,6 +19,11 @@ async function syncViewerData(){
 
 let startupRunning=false;
 let manualLoadRunning=false;
+function manualLoadErrorMessage(error){
+ const detail=String(error?.message||'No se recibió una respuesta válida.');
+ const code=error?.code?` (${error.code})`:'';
+ return `No se pudo cargar la cartera. ${detail}${code} Pulsa Actualizar para reintentar.`;
+}
 function setManualLoadScreen(pending,message=''){
  document.body.classList.toggle('manual-load',pending);
  document.getElementById('manualLoadPrompt').hidden=!pending;
@@ -58,11 +63,11 @@ async function loadPortfolioOnDemand(){
   if(ok){setManualLoadScreen(false);state.lastValue=null;renderAll();showApp()}
   else if(!document.getElementById('authGate').classList.contains('hidden'))return;
   else if(hasCache){setManualLoadScreen(false);updateAccessMode();renderAll();showApp();setCloudStatus('Sin conexión · mostrando la última copia local','warn')}
-  else setManualLoadScreen(true,'No se pudieron cargar los datos. Comprueba la conexión y pulsa Actualizar para reintentar.');
+  else setManualLoadScreen(true,manualLoadErrorMessage(lastCloudSyncError));
  }catch(error){
   console.error(error);
   if(hasCache){setManualLoadScreen(false);updateAccessMode();renderAll();showApp();setCloudStatus('Sin conexión · mostrando la última copia local','warn')}
-  else setManualLoadScreen(true,'No se pudieron cargar los datos. Comprueba la conexión y vuelve a intentarlo.');
+  else setManualLoadScreen(true,manualLoadErrorMessage(error));
  }finally{release();manualLoadRunning=false}
 }
 
