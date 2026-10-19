@@ -1,5 +1,5 @@
-VERSION ACTUAL: v0.13.3
-Consulta RELEASE_NOTES_0.13.3.txt para instalar esta versión.
+VERSION ACTUAL: v0.16.11
+Consulta RELEASE_NOTES_0.16.11.txt. Esta versión no requiere SQL ni desplegar funciones.
 
 HISTORIAL DE INSTALACIÓN (versiones anteriores):
 

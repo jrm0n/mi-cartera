@@ -98,10 +98,12 @@ function lastIndexAt(rows,date,dateOf){let low=0,high=rows.length;while(low<high
 function safeStorageGet(key){try{return localStorage.getItem(key)}catch{return null}}
 function safeStorageSet(key,value){try{localStorage.setItem(key,value);return true}catch(error){console.warn('No se pudo guardar la copia local',error);return false}}
 function safeStorageRemove(key){try{localStorage.removeItem(key)}catch(error){console.warn('No se pudo retirar la copia local',error)}}
-async function fetchWithTimeout(input,options={},timeoutMs=20000){
- if(typeof AbortController==='undefined')return fetch(input,options);
- const controller=new AbortController();let timer;
- try{return await Promise.race([fetch(input,{...options,signal:controller.signal}),new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('Tiempo de espera agotado. Comprueba la conexión e inténtalo de nuevo.'))},timeoutMs)})])}
+async function fetchWithTimeout(input,options={},timeoutMs=20000,consume=response=>response){
+ if(typeof AbortController==='undefined')return consume(await fetch(input,options));
+ const controller=new AbortController();let timer,timedOut=false;
+ const timeoutError=Object.assign(new Error('La solicitud ha superado el tiempo de espera. Pulsa Actualizar para reintentar.'),{code:'REQUEST_TIMEOUT'});
+ try{return await Promise.race([fetch(input,{...options,signal:controller.signal}).then(consume),new Promise((_,reject)=>{timer=setTimeout(()=>{timedOut=true;reject(timeoutError);controller.abort(timeoutError)},timeoutMs)})])}
+ catch(error){if(timedOut)throw timeoutError;if(error?.name==='AbortError')throw Object.assign(new Error('La solicitud se ha cancelado antes de terminar. Puedes reintentar la actualización.'),{code:'REQUEST_ABORTED'});throw error}
  finally{clearTimeout(timer)}
 }
 
@@ -256,37 +258,41 @@ function entityWordmark(name){
 }
 
 const PREFERENCES_KEY='mi_cartera_preferences_v1';
+const CACHE_MARKER_KEY='mi_cartera_cache_marker_v1';
 const PREFERENCE_FIELDS=['group','opFilter','period','analysisEntity','analysisRange','analysisMetric','analysisDrill','analysisComparisons','lastValue'];
-let snapshotDatabasePromise=null,cacheWriteTimer=null,lastCacheRevision=-1,lastCachedReport=null,cacheWriteGeneration=0,savedPriceWrite=null;
+let snapshotDatabasePromise=null,cacheWriteTimer=null,lastCacheRevision=-1,lastCachedReport=null,cacheWriteGeneration=0,savedPriceWrite=null,cacheWriteQueue=Promise.resolve(),cacheLoadStatus='empty';
 function snapshotDatabase(){
  if(typeof indexedDB==='undefined')return Promise.resolve(null);
- if(!snapshotDatabasePromise)snapshotDatabasePromise=new Promise(resolve=>{
+ if(!snapshotDatabasePromise){const pending=new Promise(resolve=>{
   let settled=false;const finish=db=>{if(settled){db?.close();return}settled=true;clearTimeout(timer);resolve(db)};
-  const timer=setTimeout(()=>finish(null),1500);
-  try{const request=indexedDB.open('mi-cartera-offline',1);request.onupgradeneeded=()=>{if(!request.result.objectStoreNames.contains('snapshots'))request.result.createObjectStore('snapshots')};request.onsuccess=()=>finish(request.result);request.onerror=()=>finish(null);request.onblocked=()=>finish(null)}catch{finish(null)}
- });
+  const timer=setTimeout(()=>finish(null),10000);
+  try{const request=indexedDB.open('mi-cartera-offline',1);request.onupgradeneeded=()=>{if(!request.result.objectStoreNames.contains('snapshots'))request.result.createObjectStore('snapshots')};request.onsuccess=()=>{const db=request.result;db.onclose=()=>{if(snapshotDatabasePromise===pending){snapshotDatabasePromise=null;savedPriceWrite=null}};db.onversionchange=()=>{db.close();if(snapshotDatabasePromise===pending){snapshotDatabasePromise=null;savedPriceWrite=null}};finish(db)};request.onerror=()=>finish(null)}catch{finish(null)}
+ });snapshotDatabasePromise=pending;void pending.then(db=>{if(!db&&snapshotDatabasePromise===pending)snapshotDatabasePromise=null});}
  return snapshotDatabasePromise;
 }
-function snapshotRead(db){return new Promise(resolve=>{try{
+function snapshotRead(db){return new Promise((resolve,reject)=>{try{
  const transaction=db.transaction('snapshots','readonly'),store=transaction.objectStore('snapshots'),current=store.get('current'),prices=store.get('prices');
  transaction.oncomplete=()=>{const record=current.result||null;if(record?.cacheFormat!==3){resolve(record);return}const saved=prices.result;
-  if(!saved||saved.cachedFor!==record.cachedFor||saved.priceRevision!==record.priceRevision){resolve(null);return}
+  if(!saved||saved.cachedFor!==record.cachedFor||saved.priceRevision!==record.priceRevision){reject(new Error('La copia local no pudo verificarse.'));return}
   resolve({...record,cloudSnapshot:record.cloudSnapshot?{...record.cloudSnapshot,navs:saved.navs||[],listingPrices:saved.listingPrices||[]}:null});
- };transaction.onerror=()=>resolve(null);transaction.onabort=()=>resolve(null);
- }catch{resolve(null)}})}
-function snapshotWrite(db,record,prices){return new Promise((resolve,reject)=>{try{const transaction=db.transaction('snapshots','readwrite'),store=transaction.objectStore('snapshots');if(prices)store.put(prices,'prices');store.put(record,'current');transaction.oncomplete=()=>resolve();transaction.onerror=()=>reject(transaction.error||new Error('Almacenamiento local no disponible'));transaction.onabort=()=>reject(transaction.error||new Error('Escritura local interrumpida'))}catch(error){reject(error)}})}
+ };transaction.onerror=()=>reject(transaction.error||new Error('No se pudo leer la copia local.'));transaction.onabort=()=>reject(transaction.error||new Error('La lectura local se interrumpió.'));
+ }catch(error){reject(error)}})}
+function snapshotWrite(db,record,prices,fallbackPrices=null){return new Promise((resolve,reject)=>{try{const transaction=db.transaction('snapshots','readwrite'),store=transaction.objectStore('snapshots');if(prices)store.put(prices,'prices');else if(fallbackPrices){const check=store.get('prices');check.onsuccess=()=>{const saved=check.result;if(!saved||saved.cachedFor!==record.cachedFor||saved.priceRevision!==record.priceRevision)store.put(fallbackPrices,'prices')}}store.put(record,'current');transaction.oncomplete=()=>resolve();transaction.onerror=()=>reject(transaction.error||new Error('Almacenamiento local no disponible'));transaction.onabort=()=>reject(transaction.error||new Error('Escritura local interrumpida'))}catch(error){reject(error)}})}
 async function loadCache(){
- const userId=session?.user?.id;if(!userId)return false;let record=null;
- try{const db=await snapshotDatabase();if(db)record=await snapshotRead(db);if(!record)record=JSON.parse(safeStorageGet(CACHE_KEY)||'null')}catch{}
+ const userId=session?.user?.id;if(!userId)return false;let record=null;cacheLoadStatus='empty';
+ try{const db=await snapshotDatabase();if(db)record=await snapshotRead(db);else cacheLoadStatus='unavailable'}catch{cacheLoadStatus='unavailable';savedPriceWrite=null;snapshotDatabasePromise=null}
+ if(!record)try{record=JSON.parse(safeStorageGet(CACHE_KEY)||'null')}catch{cacheLoadStatus='unavailable'}
+ if(!record){try{if(JSON.parse(safeStorageGet(CACHE_MARKER_KEY)||'null')?.cachedFor===userId)cacheLoadStatus='unavailable'}catch{}return false}
  if(session?.user?.id!==userId)return false;
  const cached=record?.state||record;
- if(cached?.cachedFor!==userId&&record?.cachedFor!==userId||!Array.isArray(cached?.positions)||record?.schemaVersion&&record.schemaVersion!==DATA_SCHEMA_VERSION)return false;
+ if(cached?.cachedFor!==userId&&record?.cachedFor!==userId)return false;
+ if(!Array.isArray(cached?.positions)||record?.schemaVersion&&record.schemaVersion!==DATA_SCHEMA_VERSION){cacheLoadStatus='unavailable';return false}
  state={...state,...cached};delete state.cachedFor;delete state.cloudSnapshot;delete state.navHistory;delete state.listingHistory;delete state.schemaVersion;
  cloudSnapshot=record.cloudSnapshot||null;
  if(record.cacheFormat>=2&&cloudSnapshot){const series=priceSeriesFor(cloudSnapshot.navs||[],cloudSnapshot.listingPrices||[]);navHistory=series.byIsin;listingHistory=series.byListing}else{navHistory=record.navHistory||{};listingHistory=record.listingHistory||{}}
  if(record.cacheFormat===3)savedPriceWrite={cachedFor:userId,navs:cloudSnapshot?.navs,listingPrices:cloudSnapshot?.listingPrices,priceRevision:record.priceRevision};
  try{const preferences=JSON.parse(safeStorageGet(PREFERENCES_KEY)||'null');if(preferences?.cachedFor===userId)for(const field of PREFERENCE_FIELDS)if(field in preferences)state[field]=preferences[field]}catch{}
- invalidateCalculations();return true;
+ cacheLoadStatus='ready';invalidateCalculations();return true;
 }
 function saveCache(){
  if(!session?.user?.id)return;ensureCalculationInputs();state.updatedAt=new Date().toISOString();
@@ -296,22 +302,28 @@ function saveCache(){
  if(cacheWriteTimer!==null)clearTimeout(cacheWriteTimer);
  cacheWriteTimer=setTimeout(()=>{cacheWriteTimer=null;void persistPortfolioCache(userId,generation)},100);
 }
-async function persistPortfolioCache(userId=session?.user?.id,generation=cacheWriteGeneration){
+function persistPortfolioCache(userId=session?.user?.id,generation=cacheWriteGeneration){
+ const task=cacheWriteQueue.catch(()=>{}).then(()=>writePortfolioCache(userId,generation));cacheWriteQueue=task;return task;
+}
+async function writePortfolioCache(userId,generation){
  if(!userId||session?.user?.id!==userId||generation!==cacheWriteGeneration)return false;
- const record={cacheFormat:2,cachedFor:userId,schemaVersion:DATA_SCHEMA_VERSION,state:{...state},cloudSnapshot};
+ const snapshot=cloudSnapshot,record={cacheFormat:2,cachedFor:userId,schemaVersion:DATA_SCHEMA_VERSION,state:{...state},cloudSnapshot:snapshot};
  try{const db=await snapshotDatabase();if(session?.user?.id!==userId||generation!==cacheWriteGeneration)return false;if(db){
-  const changed=savedPriceWrite?.cachedFor!==userId||savedPriceWrite?.navs!==cloudSnapshot?.navs||savedPriceWrite?.listingPrices!==cloudSnapshot?.listingPrices;
+  const changed=savedPriceWrite?.cachedFor!==userId||savedPriceWrite?.navs!==snapshot?.navs||savedPriceWrite?.listingPrices!==snapshot?.listingPrices;
   const priceRevision=changed?(globalThis.crypto?.randomUUID?.()||String(Date.now())+'-'+Math.random()):savedPriceWrite.priceRevision;
-  const prices=changed?{cachedFor:userId,priceRevision,navs:cloudSnapshot?.navs||[],listingPrices:cloudSnapshot?.listingPrices||[]}:null;
-  const metadata={...record,cacheFormat:3,priceRevision,cloudSnapshot:cloudSnapshot?{...cloudSnapshot,navs:undefined,listingPrices:undefined}:null};
-  await snapshotWrite(db,metadata,prices);if(generation!==cacheWriteGeneration||session?.user?.id!==userId)return false;
-  savedPriceWrite={cachedFor:userId,priceRevision,navs:cloudSnapshot?.navs,listingPrices:cloudSnapshot?.listingPrices};safeStorageRemove(CACHE_KEY);
- }else if(!safeStorageSet(CACHE_KEY,JSON.stringify(record)))throw new Error('No hay espacio disponible para la copia local');return true}
- catch(error){lastCacheRevision=-1;console.warn('Copia local',error);setCloudStatus('Datos cargados · no se pudo guardar la copia local','warn');return false}
+  const fullPrices={cachedFor:userId,priceRevision,navs:snapshot?.navs||[],listingPrices:snapshot?.listingPrices||[]};
+  const metadata={...record,cacheFormat:3,priceRevision,cloudSnapshot:snapshot?{...snapshot,navs:undefined,listingPrices:undefined}:null};
+  await snapshotWrite(db,metadata,changed?fullPrices:null,fullPrices);if(generation!==cacheWriteGeneration||session?.user?.id!==userId)return false;
+  savedPriceWrite={cachedFor:userId,priceRevision,navs:snapshot?.navs,listingPrices:snapshot?.listingPrices};safeStorageRemove(CACHE_KEY);
+ }else if(!safeStorageSet(CACHE_KEY,JSON.stringify(record)))throw new Error('No hay espacio disponible para la copia local');
+ safeStorageSet(CACHE_MARKER_KEY,JSON.stringify({cachedFor:userId,savedAt:new Date().toISOString()}));return true}
+ catch(error){lastCacheRevision=-1;savedPriceWrite=null;snapshotDatabasePromise=null;console.warn('Copia local',error);
+  if(session?.user?.id===userId&&generation===cacheWriteGeneration&&safeStorageSet(CACHE_KEY,JSON.stringify(record))){safeStorageSet(CACHE_MARKER_KEY,JSON.stringify({cachedFor:userId,savedAt:new Date().toISOString()}));return true}
+  setCloudStatus('Datos cargados · no se pudo guardar la copia local','warn');return false}
 }
 function clearPortfolioCache(){
- cacheWriteGeneration++;savedPriceWrite=null;lastCacheRevision=-1;lastCachedReport=null;if(cacheWriteTimer!==null)clearTimeout(cacheWriteTimer);cacheWriteTimer=null;safeStorageRemove(CACHE_KEY);safeStorageRemove(PREFERENCES_KEY);
- void snapshotDatabase().then(db=>{if(db)try{const store=db.transaction('snapshots','readwrite').objectStore('snapshots');store.delete('current');store.delete('prices')}catch{}});
+ cacheWriteGeneration++;savedPriceWrite=null;lastCacheRevision=-1;lastCachedReport=null;if(cacheWriteTimer!==null)clearTimeout(cacheWriteTimer);cacheWriteTimer=null;safeStorageRemove(CACHE_KEY);safeStorageRemove(PREFERENCES_KEY);safeStorageRemove(CACHE_MARKER_KEY);
+ cacheWriteQueue=cacheWriteQueue.catch(()=>{}).then(async()=>{const db=await snapshotDatabase();if(db)await new Promise(resolve=>{try{const tx=db.transaction('snapshots','readwrite'),store=tx.objectStore('snapshots');store.delete('current');store.delete('prices');tx.oncomplete=tx.onerror=tx.onabort=()=>resolve()}catch{resolve()}})});
 }
 
 function loadSession(){try{return JSON.parse(safeStorageGet(SESSION_KEY)||'null')}catch{return null}}
@@ -323,9 +335,9 @@ function showAuth(){document.getElementById('authGate')?.classList.remove('hidde
 function showApp(){document.getElementById('authGate')?.classList.add('hidden');document.getElementById('app')?.classList.remove('auth-hidden');const email=session?.user?.email||'';const u=document.getElementById('signedUser');if(u)u.textContent=email}
 
 async function authFetch(path,options={}){
- const res=await fetchWithTimeout(SUPABASE_URL+path,{...options,headers:{'apikey':SUPABASE_KEY,'Content-Type':'application/json',...(options.headers||{})}});
- const text=await res.text();let data=null;try{data=text?JSON.parse(text):null}catch{data=text}
- if(!res.ok){const msg=data?.msg||data?.message||data?.error_description||data?.error||`HTTP ${res.status}`;throw new Error(msg)}return data;
+ const {res,text}=await fetchWithTimeout(SUPABASE_URL+path,{...options,headers:{'apikey':SUPABASE_KEY,'Content-Type':'application/json',...(options.headers||{})}},30000,async res=>({res,text:await res.text()}));
+ let data=null;try{data=text?JSON.parse(text):null}catch{data=text}
+ if(!res.ok){const msg=data?.msg||data?.message||data?.error_description||data?.error||`HTTP ${res.status}`,error=new Error(msg);error.httpStatus=res.status;error.code=data?.error_code||data?.code||null;throw error}return data;
 }
 async function signIn(email,password){
  const data=await authFetch('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email,password})});
@@ -339,7 +351,7 @@ async function refreshSession(){
 }
 async function ensureSession(){
  session=loadSession();if(!session)return false;
- if((session.expires_at||0)<Math.floor(Date.now()/1000)+90){try{await refreshSession()}catch{saveSession(null);session=null;return false}}
+ if((session.expires_at||0)<Math.floor(Date.now()/1000)+90){try{await refreshSession()}catch(error){if(error?.httpStatus===400||error?.httpStatus===401){saveSession(null);session=null;return false}throw error}}
  return true;
 }
 async function signOut(){
@@ -353,10 +365,10 @@ async function rest(path,options={},retry=true){
  if(state.readonly&&options.method&&options.method!=='GET'&&!readRpc)throw new Error('Esta cartera es de solo lectura.');
  const requestUser=session.user?.id,requestEpoch=sessionEpoch;
  const headers={'apikey':SUPABASE_KEY,'Authorization':`Bearer ${session.access_token}`,'Content-Type':'application/json',...(options.headers||{})};
- const res=await fetchWithTimeout(`${SUPABASE_URL}/rest/v1/${path}`,{...options,headers});
+ const {res,text}=await fetchWithTimeout(`${SUPABASE_URL}/rest/v1/${path}`,{...options,headers},!options.method||options.method==='GET'||readRpc?60000:20000,async res=>({res,text:await res.text()}));
  if(session?.user?.id!==requestUser||sessionEpoch!==requestEpoch)throw new Error('La sesión cambió durante la solicitud');
  if(res.status===401&&retry){await refreshSession();return rest(path,options,false)}
- const text=await res.text();if(session?.user?.id!==requestUser||sessionEpoch!==requestEpoch)throw new Error('La sesión cambió durante la solicitud');let data=null;try{data=text?JSON.parse(text):null}catch{data=text}
+ if(session?.user?.id!==requestUser||sessionEpoch!==requestEpoch)throw new Error('La sesión cambió durante la solicitud');let data=null;try{data=text?JSON.parse(text):null}catch{data=text}
  if(!res.ok){const msg=data?.message||data?.hint||data?.details||`HTTP ${res.status}`,error=new Error(msg);error.httpStatus=res.status;error.code=data?.code||null;throw error}
  if(options.method&&options.method!=='GET'&&!readRpc)serverMutationRevision++;return data;
 }

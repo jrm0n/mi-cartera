@@ -34,7 +34,7 @@ function setManualLoadScreen(pending,message=''){
 async function showSavedPortfolio(){
  const hasCache=await loadCache()&&state.portfolios.length>0;
  if(hasCache){setManualLoadScreen(false);updateAccessMode();renderAll();setCloudStatus('Última copia guardada · pulsa Actualizar para renovar los datos','local')}
- else setManualLoadScreen(true,'Todavía no hay una copia guardada en este navegador.');
+ else setManualLoadScreen(true,typeof cacheLoadStatus!=='undefined'&&cacheLoadStatus==='unavailable'?'No se pudo recuperar la copia local. Pulsa Actualizar para volver a cargar la cartera.':'Todavía no hay una copia guardada en este navegador.');
  showApp();return hasCache;
 }
 async function init(){
@@ -54,7 +54,7 @@ async function init(){
 }
 async function loadPortfolioOnDemand(){
  if(manualLoadRunning)return;
- manualLoadRunning=true;const release=beginAppBusy('Cargando datos…');let hasCache=false;
+ manualLoadRunning=true;const release=beginAppBusy('Cargando datos…');let hasCache=!!cloudSnapshot&&state.portfolios.length>0;
  try{
   if(!await ensureSession()){showAuth();setAuthMessage('Inicia sesión para cargar la cartera.',true);return}
   hasCache=!!cloudSnapshot&&state.portfolios.length>0;

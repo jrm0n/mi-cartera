@@ -1,0 +1,41 @@
+MI CARTERA 0.16.11 — RECUPERACIÓN LOCAL Y CARGA
+19/10/2026
+
+Cambios
+- La apertura de la copia local dispone de 10 segundos, frente a 1,5 segundos.
+  Un fallo temporal permite reintentar: no se memoriza durante toda la sesión.
+- Los fallos de lectura ya no se presentan como si nunca hubiera existido copia.
+- El guardado queda serializado y vincula los metadatos a sus propios precios.
+  Si falta un bloque de precios, la siguiente escritura lo reconstruye.
+- Si falla IndexedDB, se intenta conservar una copia completa en localStorage.
+  Si ambos almacenamientos fallan se mantiene el aviso de guardado fallido.
+- Una renovación de sesión fallida por un problema temporal no elimina la sesión
+  local ni oculta la cartera que ya estaba visible. Un rechazo de Auth sí pide acceso.
+- Sin copia se consulta directamente por páginas; se evita la RPC de carga completa.
+  Con copia se conserva la lectura rápida incremental.
+- Las lecturas permiten hasta 60 segundos por petición, incluida su transferencia.
+  Las cancelaciones por tiempo de espera muestran un mensaje en castellano.
+
+Funcionamiento
+La app sigue abriendo únicamente la última copia local. Solo Actualizar consulta
+la cartera en Supabase. El ojo de privacidad sigue activado al iniciar.
+No se modifican fórmulas financieras, cotizaciones ni operaciones.
+
+Supabase
+Revisado: proyecto activo, función read_portfolio_fast_v1 instalada y resolve-fund
+HISTORICO-12 activo. No se necesitan migraciones ni nuevos despliegues de funciones.
+Los registros del incidente mostraban cancelaciones de consultas por statement timeout.
+No es posible determinar desde el servidor por qué el móvil no leyó su copia local.
+
+Verificación
+65 pruebas automatizadas superadas, incluidas apertura local lenta, fallo temporal,
+escrituras concurrentes, recuperación alternativa, separación por usuario, timeout
+durante el cuerpo de la respuesta y conservación de sesión ante errores temporales.
+Prueba en Chromium con 12 fondos y 21.600 cotizaciones: carga inicial por páginas,
+reinicio con apertura local demorada, arranque sin peticiones de cartera, privacidad
+activa, migración de copias antiguas y actualización sin cambios con una RPC y sin
+reescribir los precios. Simulación con datos de prueba, no una medida del móvil real.
+
+Publicación
+Publicación directa autorizada en GitHub. Cerrar y abrir la app y comprobar v0.16.11.
+No hace falta ejecutar SQL ni desplegar resolve-fund para instalar esta versión.

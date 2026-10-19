@@ -1,7 +1,7 @@
 // Una instantánea de lectura con las mismas políticas de acceso de Supabase.
 let fastSyncAvailable=null;
 async function readCloudSnapshot(previous,options={}){
- if(options.priceChanges){
+ if(options.priceChanges&&previous){
   try{const result=await readFastCloudSnapshot(previous);if(result)return result}
   catch(error){
    // Los fallos de sesión/acceso no deben provocar otra lectura con otra identidad.

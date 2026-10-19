@@ -11,7 +11,7 @@ function loadApp(config={cloud:{}},skipInit=false) {
   const element = id => {
     if (!elements.has(id)) elements.set(id, {
       style: {}, dataset: {}, classList: { add(){}, remove(){}, toggle(){}, contains(){return false} },
-      addEventListener(){}, textContent: '', innerHTML: '', value: '',
+      addEventListener(){}, setAttribute(){}, focus(){}, textContent: '', innerHTML: '', value: '',
     });
     return elements.get(id);
   };
@@ -23,7 +23,7 @@ function loadApp(config={cloud:{}},skipInit=false) {
       getElementById: element,
       querySelectorAll: () => [],
       documentElement: { dataset: {} },
-      body: { dataset: {} },
+      body: { dataset: {}, classList: {toggle(){}} },
     },
     addEventListener(){},
   };
@@ -41,7 +41,7 @@ const app = loadApp();
 const evalInApp = expression => vm.runInContext(expression, app);
 
 test('la versión y las funciones esenciales cargan con el orden publicado', () => {
-  assert.equal(evalInApp('APP_VERSION'), '0.13.3');
+  assert.equal(evalInApp('APP_VERSION'), '0.16.11');
   assert.equal(typeof app.exportBackup, 'function');
   assert.equal(typeof app.retryRefreshTarget, 'function');
 });
@@ -120,4 +120,12 @@ test('la restauración comprueba primero y exige las dos confirmaciones antes de
   target.prompt=()=> 'RESTAURAR';
   await target.restoreBackupFile(input);
   assert.deepEqual(target.__calls,[true,false]);
+});
+
+test('la caché de series conserva precios exactos, aproximación y mercado sin reconstruir arrays iguales',()=>{
+ const navs=[{isin:'A',nav_date:'2026-10-01',nav:10,currency:'EUR',source:'Source'}],prices=[{provider_symbol:'EXACT',price_date:'2026-10-01',price:20,currency:'EUR',is_approximate:true,proxy_symbol:'PROXY',calibration_factor:2,approximation_method:'factor',calibration_date:'2026-10-01'}];
+ const first=app.priceSeriesFor(navs,prices),again=app.priceSeriesFor(navs,prices);assert.equal(first,again);assert.equal(first.byListing.EXACT[0].isApproximate,true);assert.equal(first.byListing.EXACT[0].proxySymbol,'PROXY');assert.equal(first.byListing.EXACT[0].calibrationFactor,2);assert.equal(first.byIsin.A[0].nav,10);
+});
+test('sin aportaciones recurrentes activas no requiere procesar históricos y conserva las reglas pausadas',()=>{
+ const result=app.expandRecurringRules([{id:'paused',active:false}],null,null);assert.equal(result.operations.length,0);assert.equal(result.stats.paused.pending,0);assert.equal(result.stats.paused.nextDate,null);
 });
