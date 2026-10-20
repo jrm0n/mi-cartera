@@ -711,8 +711,9 @@ async function ensureAccount(entity){
  if(state.readonly)throw new Error('Esta cartera es de solo lectura.');
  const matches=a=>a.portfolio_id===portfolio.id&&a.institution_code===code;
  const remember=a=>{
-  if(cloudSnapshot)cloudSnapshot.accounts=[...(cloudSnapshot.accounts||[]).filter(x=>x.id!==a.id),a];
-  if(state.activePortfolioId===portfolio.id)cloudAccounts=[...cloudAccounts.filter(x=>x.id!==a.id),a].filter(x=>x.portfolio_id===portfolio.id&&x.active!==false);
+  const merge=rows=>[...new Map([...(rows||[]).map(x=>[x.id,x]),[a.id,a]]).values()];
+  if(cloudSnapshot)cloudSnapshot.accounts=merge(cloudSnapshot.accounts);
+  if(state.activePortfolioId===portfolio.id)cloudAccounts=merge(cloudAccounts).filter(x=>x.portfolio_id===portfolio.id&&x.active!==false);
   return a;
  };
  const cached=[...cloudAccounts,...(cloudSnapshot?.accounts||[])].find(a=>matches(a)&&a.active!==false);if(cached)return remember(cached);

@@ -25,7 +25,7 @@ Cerrar y abrir la app, comprobar v0.16.12 y volver a guardar la operación que f
 Los intentos fallidos no actualizaron la operación: se detenían al crear la cuenta.
 
 Verificación
-66 pruebas automatizadas superadas, incluida edición de Base 2026 con cuenta
+67 pruebas automatizadas superadas, incluida edición de Base 2026 con cuenta
 existente después de restaurar la copia, búsqueda remota, conflicto simultáneo,
 cuentas desactivadas, permisos de lectura y separación entre carteras.
 
