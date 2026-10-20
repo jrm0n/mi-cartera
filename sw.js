@@ -1,5 +1,5 @@
 importScripts('./version.js');
-// v0.16.11: recuperación local y peticiones con tiempo de espera controlado.
+// v0.16.12: restaura y reutiliza cuentas al editar desde la copia guardada.
 const CACHE='mi-cartera-v'+self.MI_CARTERA_VERSION;
 const ASSETS=['./','./index.html','./manifest.webmanifest','./version.js','./config.js','./core.js','./access.js','./analysis.js','./operations.js','./market.js','./privacy.js','./privacy.css','./data-status.js','./data-status.css','./fast-sync.js','./app.js','./version.json','./santander.png','./kutxabank.png','./icons/icon-192.png','./icons/icon-512.png'];
 const assetURLs=new Set(ASSETS.map(asset=>new URL(asset,self.location.href).href));

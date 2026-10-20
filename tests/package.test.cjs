@@ -16,7 +16,7 @@ test('la página carga los scripts en el orden requerido y la PWA los incluye', 
     assert.ok(worker.includes(`'./${script}'`), `${script} falta en la caché PWA`);
     previous = index;
   }
-  assert.equal(JSON.parse(read('version.json')).appVersion, '0.16.11');
+  assert.equal(JSON.parse(read('version.json')).appVersion, '0.16.12');
   assert.ok(html.includes('href="privacy.css"'));
   assert.ok(worker.includes("'./privacy.css'"));
   assert.ok(html.includes('id="privacyBtn"'));
@@ -27,7 +27,7 @@ test('la página carga los scripts en el orden requerido y la PWA los incluye', 
   assert.ok(html.includes('id="restoreBackupBtn"'));
   assert.ok(html.includes('data-page="access"'));
   assert.ok(html.includes('class="access-brand"'));
-  assert.ok(html.includes('id="accessVersionLabel">v0.16.11'));
+  assert.ok(html.includes('id="accessVersionLabel">v0.16.12'));
   assert.ok(html.includes('body:has(#page-access.active) .portfolio-head{display:none!important}'));
   assert.ok(read('017_portfolio_viewers_v0.13.0.sql').includes('create policy operations_select_viewers'));
 });

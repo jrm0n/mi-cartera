@@ -1,0 +1,34 @@
+MI CARTERA 0.16.12 — REUTILIZACIÓN DE CUENTAS AL EDITAR
+20/10/2026
+
+Problema
+Al arrancar desde la copia local se restauraban la cartera y las operaciones,
+pero no cloudAccounts, la lista usada para reutilizar cuentas al guardar.
+Editar una Base 2026 podía intentar crear de nuevo la cuenta Principal de
+MyInvestor y fallar por accounts_portfolio_institution_name_uidx.
+La cuenta ya existe y está activa en Supabase.
+
+Corrección
+- Restauración de las cuentas activas de la cartera seleccionada al leer la copia.
+- La búsqueda de una cuenta también comprueba la instantánea local completa.
+- Antes de crear una cuenta se consulta Supabase para comprobar si ya existe.
+- Si otra pestaña o dispositivo la crea simultáneamente, se recupera la cuenta
+  existente después del conflicto, en vez de bloquear el guardado de la operación.
+- No se activan cuentas desactivadas automáticamente ni se reutilizan cuentas
+  pertenecientes a otra cartera. Se mantiene el bloqueo de invitados de solo lectura.
+- El inicio continúa usando la última copia local, sin consultar datos nuevos.
+- No se cambian las fórmulas ni se modifica ninguna operación real durante las pruebas.
+
+Instalación
+Publicación directa en GitHub autorizada. No requiere SQL ni desplegar funciones.
+Cerrar y abrir la app, comprobar v0.16.12 y volver a guardar la operación que falló.
+Los intentos fallidos no actualizaron la operación: se detenían al crear la cuenta.
+
+Verificación
+66 pruebas automatizadas superadas, incluida edición de Base 2026 con cuenta
+existente después de restaurar la copia, búsqueda remota, conflicto simultáneo,
+cuentas desactivadas, permisos de lectura y separación entre carteras.
+
+Prueba adicional en Chromium: abrir desde copia local, editar Base 2026 y guardar
+actualiza una sola operación con la cuenta existente, sin POST a accounts.
+Se mantienen el arranque local y la actualización rápida cuando no hay cambios.

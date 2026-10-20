@@ -1,5 +1,5 @@
-VERSION ACTUAL: v0.16.11
-Consulta RELEASE_NOTES_0.16.11.txt. Esta versión no requiere SQL ni desplegar funciones.
+VERSION ACTUAL: v0.16.12
+Consulta RELEASE_NOTES_0.16.12.txt. Esta versión no requiere SQL ni desplegar funciones.
 
 HISTORIAL DE INSTALACIÓN (versiones anteriores):
 

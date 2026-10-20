@@ -289,6 +289,7 @@ async function loadCache(){
  if(!Array.isArray(cached?.positions)||record?.schemaVersion&&record.schemaVersion!==DATA_SCHEMA_VERSION){cacheLoadStatus='unavailable';return false}
  state={...state,...cached};delete state.cachedFor;delete state.cloudSnapshot;delete state.navHistory;delete state.listingHistory;delete state.schemaVersion;
  cloudSnapshot=record.cloudSnapshot||null;
+ cloudAccounts=(cloudSnapshot?.accounts||[]).filter(a=>a.portfolio_id===state.activePortfolioId&&a.active!==false);
  if(record.cacheFormat>=2&&cloudSnapshot){const series=priceSeriesFor(cloudSnapshot.navs||[],cloudSnapshot.listingPrices||[]);navHistory=series.byIsin;listingHistory=series.byListing}else{navHistory=record.navHistory||{};listingHistory=record.listingHistory||{}}
  if(record.cacheFormat===3)savedPriceWrite={cachedFor:userId,navs:cloudSnapshot?.navs,listingPrices:cloudSnapshot?.listingPrices,priceRevision:record.priceRevision};
  try{const preferences=JSON.parse(safeStorageGet(PREFERENCES_KEY)||'null');if(preferences?.cachedFor===userId)for(const field of PREFERENCE_FIELDS)if(field in preferences)state[field]=preferences[field]}catch{}
@@ -706,6 +707,23 @@ async function ensureFund(isin,name,theme){
  const existing=state.funds?.[isin];if(existing)return existing;const rows=await rpc('ensure_fund',{p_isin:isin,p_name:name||isin,p_theme:theme||'Sin clasificar',p_currency:'EUR'});return Array.isArray(rows)?rows[0]:rows;
 }
 async function ensureAccount(entity){
- const code=ENTITY[entity]?.code||entity,portfolio=activePortfolio();if(!portfolio)throw new Error('Selecciona una cartera activa.');let a=cloudAccounts.find(x=>x.portfolio_id===portfolio.id&&x.institution_code===code&&x.active!==false);if(a)return a;
- const rows=await insert('accounts',{portfolio_id:portfolio.id,institution_code:code,account_name:'Principal',active:true});a=rows?.[0];if(!a)throw new Error('No se pudo crear la cuenta de '+entity);cloudAccounts.push(a);if(cloudSnapshot)cloudSnapshot.accounts.push(a);return a;
+ const code=ENTITY[entity]?.code||entity,portfolio=activePortfolio();if(!portfolio)throw new Error('Selecciona una cartera activa.');
+ if(state.readonly)throw new Error('Esta cartera es de solo lectura.');
+ const matches=a=>a.portfolio_id===portfolio.id&&a.institution_code===code;
+ const remember=a=>{
+  if(cloudSnapshot)cloudSnapshot.accounts=[...(cloudSnapshot.accounts||[]).filter(x=>x.id!==a.id),a];
+  if(state.activePortfolioId===portfolio.id)cloudAccounts=[...cloudAccounts.filter(x=>x.id!==a.id),a].filter(x=>x.portfolio_id===portfolio.id&&x.active!==false);
+  return a;
+ };
+ const cached=[...cloudAccounts,...(cloudSnapshot?.accounts||[])].find(a=>matches(a)&&a.active!==false);if(cached)return remember(cached);
+ const query=`select=*&portfolio_id=eq.${encodeURIComponent(portfolio.id)}&institution_code=eq.${encodeURIComponent(code)}&order=created_at.asc,id.asc`;
+ const lookup=async()=>{const rows=await select('accounts',query);if(!Array.isArray(rows))throw new Error('No se pudo comprobar la cuenta de '+entity);return rows.filter(matches)};
+ let rows=await lookup(),existing=rows.find(a=>a.active!==false);if(existing)return remember(existing);
+ if(rows.some(a=>a.account_name==='Principal'&&a.active===false))throw new Error('La cuenta Principal de '+entity+' está desactivada. No se ha creado otra cuenta.');
+ try{const created=await insert('accounts',{portfolio_id:portfolio.id,institution_code:code,account_name:'Principal',active:true});const a=created?.[0];if(!a||!matches(a))throw new Error('No se pudo crear la cuenta de '+entity);return remember(a)}
+ catch(error){
+  // Otra pestaña o dispositivo puede haber creado la misma cuenta tras la consulta.
+  if(error?.code==='23505'||/accounts_portfolio_institution_name_uidx/.test(String(error?.message||''))){rows=await lookup();existing=rows.find(a=>a.active!==false);if(existing)return remember(existing)}
+  throw error;
+ }
 }
